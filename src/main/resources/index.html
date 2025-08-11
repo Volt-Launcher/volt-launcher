@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Minecraft Launcher</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2 {
+        color: #333;
+      }
+      select,
+      button,
+      input {
+        padding: 8px 12px;
+        margin: 5px 0;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      .loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        animation: spin 2s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-left: 10px;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .hidden {
+        display: none;
+      }
+      .section {
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+      }
+      .form-group {
+        margin-bottom: 10px;
+      }
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      #install-status {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Minecraft Launcher</h1>
+
+      <div id="profiles-section" class="section">
+        <h2>Profiles</h2>
+        <div class="form-group">
+          <label for="profile-select">Select Profile:</label>
+          <select id="profile-select">
+            <option value="">Create New Profile</option>
+          </select>
+          <button id="launch-button">Launch</button>
+        </div>
+      </div>
+
+      <div id="version-section" class="section">
+        <h2>Install Minecraft</h2>
+        <div class="form-group">
+          <label for="version-select">Minecraft Version:</label>
+          <select id="version-select">
+            <option value="">Loading versions...</option>
+          </select>
+          <span id="version-loader" class="loader"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="loader-select">Mod Loader:</label>
+          <select id="loader-select">
+            <option value="vanilla">Vanilla (No Loader)</option>
+          </select>
+          <span id="loader-loader" class="loader hidden"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="profile-name">Profile Name:</label>
+          <input type="text" id="profile-name" placeholder="My Profile" />
+        </div>
+
+        <button id="install-button">Install & Create Profile</button>
+        <div id="install-status"></div>
+      </div>
+    </div>
+
+    <script>
+      // Will be populated by the Java bridge
+      let app;
+
+      // State variables
+      let mojangVersions = [];
+      let installedVersions = [];
+      let profiles = [];
+      let availableLoaders = [];
+      let selectedVersion = "";
+      let selectedLoader = "vanilla";
+
+      // Initialize when app bridge is ready
+      window.addEventListener("appReady", (event) => {
+        console.log("App bridge is ready");
+        initializeUI();
+
+        // Check if a profile was selected previously
+        if (event.detail && event.detail.selectedProfile) {
+          document.getElementById("profile-select").value =
+            event.detail.selectedProfile;
+        }
+      });
+
+      function initializeUI() {
+        // Load Minecraft versions
+        loadMojangVersions();
+        loadProfiles();
+
+        // Set up event listeners
+        document
+          .getElementById("version-select")
+          .addEventListener("change", onVersionChange);
+        document
+          .getElementById("loader-select")
+          .addEventListener("change", onLoaderChange);
+        document
+          .getElementById("install-button")
+          .addEventListener("click", installVersion);
+        document
+          .getElementById("profile-select")
+          .addEventListener("change", onProfileChange);
+        document
+          .getElementById("launch-button")
+          .addEventListener("click", launchMinecraft);
+      }
+
+      function loadMojangVersions() {
+        try {
+          const versionsJson = app.listMojangVersionsJson();
+          mojangVersions = JSON.parse(versionsJson);
+
+          // Populate version select
+          const versionSelect = document.getElementById("version-select");
+          versionSelect.innerHTML = "";
+
+          // Add "Select a version" option
+          const defaultOption = document.createElement("option");
+          defaultOption.value = "";
+          defaultOption.textContent = "Select a version";
+          versionSelect.appendChild(defaultOption);
+
+          // Group versions by type (release, snapshot, etc)
+          const releaseVersions = mojangVersions.filter(
+            (v) => v.type === "release"
+          );
+          const snapshotVersions = mojangVersions.filter(
+            (v) => v.type === "snapshot"
+          );
+
+          // Add release versions
+          const releaseGroup = document.createElement("optgroup");
+          releaseGroup.label = "Releases";
+          releaseVersions.forEach((version) => {
+            const option = document.createElement("option");
+            option.value = version.id;
+            option.textContent = version.id;
+            releaseGroup.appendChild(option);
+          });
+          versionSelect.appendChild(releaseGroup);
+
+          // Add snapshot versions
+          const snapshotGroup = document.createElement("optgroup");
+          snapshotGroup.label = "Snapshots";
+          snapshotVersions.forEach((version) => {
+            const option = document.createElement("option");
+            option.value = version.id;
+            option.textContent = version.id;
+            snapshotGroup.appendChild(option);
+          });
+          versionSelect.appendChild(snapshotGroup);
+
+          // Hide loader
+          document.getElementById("version-loader").classList.add("hidden");
+        } catch (e) {
+          console.error("Failed to load versions:", e);
+          document.getElementById("version-select").innerHTML =
+            '<option value="">Error loading versions</option>';
+          document.getElementById("version-loader").classList.add("hidden");
+        }
+      }
+
+      function onVersionChange(e) {
+        selectedVersion = e.target.value;
+        if (selectedVersion) {
+          document.getElementById("loader-loader").classList.remove("hidden");
+          try {
+            const loadersJson = app.listLoadersFor(selectedVersion);
+            availableLoaders = JSON.parse(loadersJson);
+
+            // Populate loader select
+            const loaderSelect = document.getElementById("loader-select");
+            loaderSelect.innerHTML = "";
+
+            availableLoaders.forEach((loader) => {
+              const option = document.createElement("option");
+              option.value = loader;
+              option.textContent =
+                loader.charAt(0).toUpperCase() + loader.slice(1);
+              loaderSelect.appendChild(option);
+            });
+
+            // Auto-generate profile name
+            const profileName = document.getElementById("profile-name");
+            if (!profileName.value) {
+              profileName.value = `${selectedVersion} (${loaderSelect.value})`;
+            }
+          } catch (e) {
+            console.error("Failed to load loaders:", e);
+          }
+          document.getElementById("loader-loader").classList.add("hidden");
+        }
+      }
+
+      function onLoaderChange(e) {
+        selectedLoader = e.target.value;
+        // Update profile name suggestion
+        const profileName = document.getElementById("profile-name");
+        if (profileName.value.includes("(")) {
+          const baseName = selectedVersion || "Minecraft";
+          profileName.value = `${baseName} (${selectedLoader})`;
+        }
+      }
+
+      function installVersion() {
+        if (!selectedVersion || !selectedLoader) {
+          alert("Please select a version and loader");
+          return;
+        }
+
+        const profileName =
+          document.getElementById("profile-name").value ||
+          `${selectedVersion} (${selectedLoader})`;
+        const statusEl = document.getElementById("install-status");
+
+        statusEl.textContent = `Installing ${selectedLoader} for Minecraft ${selectedVersion}...`;
+        statusEl.style.color = "blue";
+
+        try {
+          // Install the version
+          const result = JSON.parse(
+            app.installVersion(selectedLoader, selectedVersion)
+          );
+
+          if (result.ok) {
+            // Create a profile
+            const profileJson = JSON.stringify({
+              name: profileName,
+              loader: selectedLoader,
+              version: selectedVersion,
+            });
+
+            const profileResult = JSON.parse(
+              app.upsertProfileJson(profileJson)
+            );
+
+            if (profileResult.ok) {
+              statusEl.textContent = "Installation completed successfully!";
+              statusEl.style.color = "green";
+
+              // Refresh profiles
+              loadProfiles();
+
+              // Select the new profile
+              setTimeout(() => {
+                document.getElementById("profile-select").value = profileName;
+                app.selectProfile(profileName);
+              }, 500);
+            } else {
+              statusEl.textContent = `Installation completed, but failed to create profile: ${profileResult.error}`;
+              statusEl.style.color = "orange";
+            }
+          } else {
+            statusEl.textContent = `Installation failed: ${result.error}`;
+            statusEl.style.color = "red";
+          }
+        } catch (e) {
+          console.error("Installation error:", e);
+          statusEl.textContent = `Installation error: ${e.message}`;
+          statusEl.style.color = "red";
+        }
+      }
+
+      function loadProfiles() {
+        try {
+          const profilesJson = app.getProfilesJson();
+          profiles = JSON.parse(profilesJson);
+
+          // Populate profile select
+          const profileSelect = document.getElementById("profile-select");
+          profileSelect.innerHTML = "";
+
+          // Add default option
+          const defaultOption = document.createElement("option");
+          defaultOption.value = "";
+          defaultOption.textContent = "Create New Profile";
+          profileSelect.appendChild(defaultOption);
+
+          // Add profiles
+          profiles.forEach((profile) => {
+            const option = document.createElement("option");
+            option.value = profile.name;
+            option.textContent = `${profile.name} (${profile.loader} ${profile.version})`;
+            profileSelect.appendChild(option);
+          });
+        } catch (e) {
+          console.error("Failed to load profiles:", e);
+        }
+      }
+
+      function onProfileChange(e) {
+        const profileName = e.target.value;
+        if (profileName) {
+          app.selectProfile(profileName);
+        }
+      }
+
+      function launchMinecraft() {
+        const profileName = document.getElementById("profile-select").value;
+        if (!profileName) {
+          alert("Please select a profile");
+          return;
+        }
+
+        try {
+          // This would call the MinecraftLauncherService via the bridge
+          if (typeof app.launchGame === "function") {
+            app.launchGame(profileName);
+          } else {
+            alert("Launch functionality not yet implemented");
+          }
+        } catch (e) {
+          console.error("Launch error:", e);
+          alert(`Failed to launch: ${e.message}`);
+        }
+      }
+    </script>
+  </body>
+</html>
