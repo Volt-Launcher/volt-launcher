@@ -41,5 +41,16 @@ bin/
 ### VS Code ###
 .vscode/
 
+### Vite ###
+.vite/
+dist/
+node_modules/
+
+### Vue ###
+.vue/
+*.vue.js
+*.vue.css
+*.vue.hot-update.*
+
 ### Mac OS ###
 .DS_Store

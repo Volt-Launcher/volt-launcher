@@ -17,6 +17,7 @@ dependencies {
     testImplementation(kotlin("test"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     runtimeOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("io.javalin:javalin:6.7.0")
 }
 
 application {
