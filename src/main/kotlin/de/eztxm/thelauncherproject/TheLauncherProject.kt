@@ -11,16 +11,12 @@ class TheLauncherProject : Application() {
 
     override fun start(stage: Stage) {
         restServer.start()
-        
-        // Wait for server to start
         Thread.sleep(500)
-        
         val webView = WebView()
         val webEngine = webView.engine
         webEngine.load("http://localhost:7070/")
-        
         val scene = Scene(webView, 1280.0, 720.0)
-        stage.title = "The Launcher Project"
+        stage.title = "TheLauncherProject"
         stage.scene = scene
         stage.show()
     }

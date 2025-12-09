@@ -18,7 +18,6 @@ class RestServer(private val port: Int) {
             }
             config.router.mount {
                 it.beforeMatched { ctx ->
-                    // For SPA routing: serve index.html for non-file routes
                     val path = ctx.path()
                     if (!path.startsWith("/api") && 
                         !path.contains(".") && 
@@ -29,12 +28,9 @@ class RestServer(private val port: Int) {
                 }
             }
         }.start(port)
-        
-        // API endpoints
         app.get("/api/test") { ctx ->
             ctx.json(mapOf("message" to "Hello from Javalin!"))
         }
-        
         println("Javalin server started on http://localhost:$port")
         println("UI available at http://localhost:$port")
     }
