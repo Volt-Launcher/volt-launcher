@@ -19,6 +19,11 @@ dependencies {
     runtimeOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("io.javalin:javalin:6.7.0")
     implementation("org.slf4j:slf4j-simple:2.0.16")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+    implementation("com.microsoft.azure:msal4j:1.14.3")
 }
 
 application {
