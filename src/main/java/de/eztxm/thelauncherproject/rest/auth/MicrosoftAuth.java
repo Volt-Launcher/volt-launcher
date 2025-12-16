@@ -81,22 +81,7 @@ public class MicrosoftAuth {
         }
     }
 
-    public static final class StartAuthResult {
-        private final String state;
-        private final String url;
-
-        public StartAuthResult(String state, String url) {
-            this.state = state;
-            this.url = url;
-        }
-
-        public String getState() {
-            return state;
-        }
-
-        public String getUrl() {
-            return url;
-        }
+    public record StartAuthResult(String state, String url) {
     }
 
     private final ConcurrentHashMap<String, PendingAuth> pendingAuthStates = new ConcurrentHashMap<>();

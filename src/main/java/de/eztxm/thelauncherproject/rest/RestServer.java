@@ -55,8 +55,8 @@ public class RestServer {
                 StartAuthResult start = msAuth.startAuthFlow();
                 JSONObject json = new JSONObject();
                 json.put("success", true);
-                json.put("state", start.getState());
-                json.put("url", start.getUrl());
+                json.put("state", start.state());
+                json.put("url", start.url());
                 json.put("message",
                         "Browser opened. After authentication you will be redirected back automatically.");
                 ctx.contentType("application/json").result(json.toString());
