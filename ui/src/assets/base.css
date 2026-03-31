@@ -1,6 +1,17 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    color-scheme: dark;
+    font-family:
+      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", sans-serif;
+    --page-bg: #07111f;
+    --panel-bg: rgba(12, 26, 45, 0.72);
+    --panel-border: rgba(191, 219, 254, 0.14);
+    --panel-shadow: 0 30px 80px rgba(3, 7, 18, 0.45);
+  }
+
   *,
   *::before,
   *::after {
@@ -8,7 +19,166 @@
     margin: 0;
     padding: 0;
   }
+
+  html {
+    height: 100%;
+    min-height: 100%;
+    background:
+      radial-gradient(circle at top left, rgba(125, 211, 252, 0.18), transparent 28%),
+      radial-gradient(circle at top right, rgba(147, 197, 253, 0.14), transparent 24%),
+      linear-gradient(180deg, #0c1930 0%, #091220 45%, #050b16 100%);
+  }
+
   body {
-    @apply bg-gray-700 text-lg text-white;
+    @apply h-full min-h-screen bg-transparent text-base text-slate-100 antialiased;
+  }
+
+  a {
+    @apply transition-colors duration-200;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+
+  #app {
+    @apply h-full min-h-screen;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    background: linear-gradient(180deg, rgba(15, 30, 50, 0.8), rgba(8, 18, 32, 0.78));
+    border: 1px solid var(--panel-border);
+    box-shadow: var(--panel-shadow);
+    @apply rounded-[28px] backdrop-blur-xl;
+  }
+
+  .glass-panel-soft {
+    background: linear-gradient(180deg, rgba(21, 38, 63, 0.62), rgba(11, 22, 39, 0.6));
+    @apply rounded-3xl border border-white/10 shadow-[0_18px_45px_rgba(2,8,23,0.3)] backdrop-blur-lg;
+  }
+
+  .section-heading {
+    @apply text-lg font-semibold tracking-tight text-slate-50 sm:text-xl;
+  }
+
+  .section-copy {
+    @apply text-sm leading-6 text-slate-300;
+  }
+
+  .soft-chip {
+    @apply inline-flex items-center gap-2 rounded-full border border-sky-200/10 bg-white/6 px-3 py-1 text-xs font-medium tracking-[0.18em] text-sky-100/85 uppercase;
+  }
+
+  .status-banner {
+    @apply flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm shadow-[0_12px_30px_rgba(15,23,42,0.2)];
+  }
+
+  .soft-button {
+    @apply inline-flex items-center justify-center rounded-2xl border border-sky-200/20 bg-linear-to-br from-sky-400 via-blue-400 to-cyan-300 px-5 py-3 font-semibold text-slate-950 shadow-[0_16px_40px_rgba(56,189,248,0.35)] transition duration-200 hover:scale-[1.01] hover:shadow-[0_20px_50px_rgba(56,189,248,0.4)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100;
+  }
+
+  .soft-button-muted {
+    @apply inline-flex items-center justify-center rounded-2xl border border-white/12 bg-white/8 px-5 py-3 font-semibold text-slate-100 transition duration-200 hover:border-sky-200/25 hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .soft-button-danger {
+    @apply inline-flex items-center justify-center rounded-2xl border border-rose-300/20 bg-linear-to-br from-rose-400 to-red-400 px-5 py-3 font-semibold text-white shadow-[0_16px_36px_rgba(244,63,94,0.32)] transition duration-200 hover:scale-[1.01] hover:shadow-[0_20px_46px_rgba(244,63,94,0.38)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100;
+  }
+
+  .field-shell {
+    @apply rounded-2xl border border-white/10 bg-slate-950/30 p-3 shadow-inner shadow-slate-950/20;
+  }
+
+  .field-label {
+    @apply mb-2 block text-xs font-semibold tracking-[0.18em] text-slate-300 uppercase;
+  }
+
+  .field-input {
+    @apply w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-slate-50 outline-none transition placeholder:text-slate-400 focus:border-sky-300/40 focus:bg-white/10 focus:ring-2 focus:ring-sky-300/25;
+  }
+
+  .toggle-pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-2 text-sm text-slate-200 transition hover:border-sky-200/20 hover:bg-white/10;
+  }
+
+  .stat-tile {
+    @apply rounded-2xl border border-white/10 bg-white/6 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)];
+  }
+
+  .detail-row {
+    @apply flex items-start justify-between gap-4 rounded-2xl border border-white/8 bg-white/5 px-4 py-3;
+  }
+
+  .detail-key {
+    @apply text-xs font-medium tracking-[0.16em] text-slate-400 uppercase;
+  }
+
+  .detail-value {
+    @apply text-right text-sm font-medium text-slate-100;
+  }
+
+  .launcher-shell {
+    background: linear-gradient(180deg, rgba(5, 12, 22, 0.96), rgba(3, 8, 15, 0.94));
+    border: 1px solid rgba(96, 165, 250, 0.18);
+    box-shadow: 0 32px 80px rgba(2, 8, 23, 0.48);
+    @apply overflow-hidden rounded-[34px];
+  }
+
+  .launcher-shell-full {
+    height: 100dvh;
+    min-height: 100dvh;
+    @apply w-full min-h-0;
+  }
+
+  .launcher-panel {
+    background: linear-gradient(180deg, rgba(7, 17, 31, 0.94), rgba(4, 10, 18, 0.92));
+    border: 1px solid rgba(96, 165, 250, 0.14);
+    box-shadow:
+      0 20px 48px rgba(2, 8, 23, 0.32),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    @apply rounded-[28px];
+  }
+
+  .launcher-rail-button {
+    @apply relative flex h-16 w-16 items-center justify-center rounded-2xl border border-sky-300/15 bg-white/6 text-slate-300 transition duration-200 hover:border-sky-300/35 hover:bg-sky-300/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-sky-300/30;
+  }
+
+  .launcher-rail-button-active {
+    @apply border-sky-300/45 bg-sky-300/16 text-white shadow-[0_14px_30px_rgba(59,130,246,0.24)];
+  }
+
+  .launcher-toolbar-button {
+    @apply inline-flex items-center gap-3 rounded-2xl border border-sky-300/20 bg-white/6 px-4 py-3 text-sm font-medium text-slate-100 transition duration-200 hover:border-sky-300/35 hover:bg-sky-300/10 focus:outline-none focus:ring-2 focus:ring-sky-300/30;
+  }
+
+  .launcher-feed-card {
+    @apply overflow-hidden rounded-3xl border border-sky-300/15 bg-slate-950/92 shadow-[0_18px_45px_rgba(2,8,23,0.35)];
+  }
+
+  .launcher-feed-media {
+    @apply relative h-32 overflow-hidden border-b border-sky-300/15 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.24),transparent_36%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(11,18,32,0.92))];
+  }
+
+  .launcher-main-column {
+    scrollbar-gutter: stable;
+    @apply min-h-0 space-y-4 overflow-y-auto pr-0.5;
+  }
+
+  .launcher-feed-column {
+    scrollbar-gutter: stable;
+    @apply min-h-0 space-y-4 overflow-y-auto pr-0.5;
+  }
+
+  .launcher-hero-stage {
+    min-height: clamp(23rem, 52vh, 44rem);
+  }
+
+  .launcher-avatar {
+    height: clamp(14rem, 34vh, 20rem);
+    width: auto;
   }
 }

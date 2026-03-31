@@ -1,11 +1,9 @@
 package de.eztxm.thelauncherproject.rest.auth;
 
-import com.microsoft.aad.msal4j.AuthorizationCodeParameters;
-import com.microsoft.aad.msal4j.AuthorizationRequestUrlParameters;
-import com.microsoft.aad.msal4j.IAuthenticationResult;
-import com.microsoft.aad.msal4j.PublicClientApplication;
-import com.microsoft.aad.msal4j.Prompt;
-import com.microsoft.aad.msal4j.ResponseMode;
+import de.eztxm.thelauncherproject.auth.MinecraftAccountSession;
+import de.eztxm.thelauncherproject.storage.EncryptedAccountStore;
+import okhttp3.FormBody;
+import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -14,52 +12,72 @@ import okhttp3.Response;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.net.URI;
-import java.net.MalformedURLException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 public class MicrosoftAuth {
 
     private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json");
+    private static final long REFRESH_SAFETY_WINDOW_MS = 5 * 60 * 1000L;
 
-    private final String clientId = "312b6922-bc5f-4eb8-919b-c5c4cd5d9944";
-    private final String redirectUri = "http://localhost:7070/callback";
-    private final String authority = "https://login.microsoftonline.com/consumers/";
-    private final Set<String> scopes = Set.of("XboxLive.signin", "offline_access");
-
-    private final OkHttpClient httpClient = new OkHttpClient();
-    private final PublicClientApplication msalApp;
+    public enum AuthFlowStatus {
+        PENDING,
+        SUCCESS,
+        ERROR
+    }
 
     public static final class PendingAuth {
-        private final String state;
         private final String codeVerifier;
-        private boolean completed;
+        private volatile AuthFlowStatus status = AuthFlowStatus.PENDING;
+        private volatile AuthResult result;
+        private volatile String errorMessage;
 
-        public PendingAuth(String state, String codeVerifier) {
-            this.state = state;
+        public PendingAuth(String codeVerifier) {
             this.codeVerifier = codeVerifier;
-        }
-
-        public String getState() {
-            return state;
         }
 
         public String getCodeVerifier() {
             return codeVerifier;
         }
 
-        public boolean isCompleted() {
-            return completed;
+        public AuthFlowStatus getStatus() {
+            return status;
         }
 
-        public void setCompleted(boolean completed) {
-            this.completed = completed;
+        public AuthResult getResult() {
+            return result;
+        }
+
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+
+        public boolean isCompleted() {
+            return status == AuthFlowStatus.SUCCESS;
+        }
+
+        public boolean hasFailed() {
+            return status == AuthFlowStatus.ERROR;
+        }
+
+        public boolean isTerminal() {
+            return status != AuthFlowStatus.PENDING;
+        }
+
+        public void complete(AuthResult result) {
+            this.result = result;
+            this.errorMessage = null;
+            this.status = AuthFlowStatus.SUCCESS;
+        }
+
+        public void fail(String errorMessage) {
+            this.result = null;
+            this.errorMessage = errorMessage;
+            this.status = AuthFlowStatus.ERROR;
         }
     }
 
@@ -84,41 +102,58 @@ public class MicrosoftAuth {
     public record StartAuthResult(String state, String url) {
     }
 
+    private record OAuthTokenResponse(
+            String accessToken,
+            String refreshToken,
+            long accessTokenExpiresAt) {
+    }
+
+    private static final String TOKEN_ENDPOINT = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+
+    private final String clientId = "312b6922-bc5f-4eb8-919b-c5c4cd5d9944";
+    private final String redirectUri = "http://localhost:7070/callback";
+    private final String scopeString = "XboxLive.signin offline_access";
+
+    private final OkHttpClient httpClient = new OkHttpClient();
+    private final EncryptedAccountStore accountStore;
     private final ConcurrentHashMap<String, PendingAuth> pendingAuthStates = new ConcurrentHashMap<>();
 
-    public MicrosoftAuth() throws MalformedURLException {
-        this.msalApp = PublicClientApplication
-                .builder(clientId)
-                .authority(authority)
-                .build();
+    private MinecraftAccountSession currentSession;
+
+    public MicrosoftAuth() throws Exception {
+        this.accountStore = new EncryptedAccountStore();
+    }
+
+    public String getClientId() {
+        return clientId;
     }
 
     public StartAuthResult startAuthFlow() {
         String state = UUID.randomUUID().toString();
         String codeVerifier = generateCodeVerifier();
-        pendingAuthStates.put(state, new PendingAuth(state, codeVerifier));
-
-        String authUrl = buildAuthUrl(state, codeVerifier);
-        return new StartAuthResult(state, authUrl);
-    }
-
-    private String buildAuthUrl(String state, String codeVerifier) {
-        String codeChallenge = codeChallengeFrom(codeVerifier);
-
-        AuthorizationRequestUrlParameters params = AuthorizationRequestUrlParameters
-                .builder(redirectUri, scopes)
-                .responseMode(ResponseMode.QUERY)
-                .prompt(Prompt.SELECT_ACCOUNT)
-                .state(state)
-                .codeChallenge(codeChallenge)
-                .codeChallengeMethod("S256")
-                .build();
-
-        return msalApp.getAuthorizationRequestUrl(params).toString();
+        pendingAuthStates.put(state, new PendingAuth(codeVerifier));
+        return new StartAuthResult(state, buildAuthUrl(state, codeVerifier));
     }
 
     public PendingAuth checkAuthStatus(String state) {
         return pendingAuthStates.get(state);
+    }
+
+    public void clearAuthState(String state) {
+        pendingAuthStates.remove(state);
+    }
+
+    public void failAuthFlow(String state, String errorMessage) {
+        PendingAuth pendingAuth = pendingAuthStates.get(state);
+        if (pendingAuth == null) {
+            throw new IllegalStateException("Invalid state parameter");
+        }
+
+        synchronized (pendingAuth) {
+            if (!pendingAuth.isTerminal()) {
+                pendingAuth.fail(errorMessage);
+            }
+        }
     }
 
     public AuthResult handleAuthCode(String code, String state) throws Exception {
@@ -127,44 +162,215 @@ public class MicrosoftAuth {
             throw new IllegalStateException("Invalid state parameter");
         }
 
-        try {
-            IAuthenticationResult msToken = acquireMicrosoftToken(code, pendingAuth.getCodeVerifier());
+        synchronized (pendingAuth) {
+            if (pendingAuth.isCompleted() && pendingAuth.getResult() != null) {
+                return pendingAuth.getResult();
+            }
 
-            JSONObject xboxToken = authenticateWithXboxLive(msToken.accessToken());
-            String xboxJwt = xboxToken.getString("Token");
+            if (pendingAuth.hasFailed()) {
+                throw new IllegalStateException(pendingAuth.getErrorMessage());
+            }
 
-            JSONObject xstsToken = getXSTSToken(xboxJwt);
-            JSONObject displayClaims = xstsToken.getJSONObject("DisplayClaims");
-            JSONArray xui = displayClaims.getJSONArray("xui");
-            JSONObject firstXui = xui.getJSONObject(0);
-            String uhs = firstXui.getString("uhs");
+            try {
+                OAuthTokenResponse microsoftTokens = exchangeAuthorizationCode(code, pendingAuth.getCodeVerifier());
+                MinecraftAccountSession session = createSessionFromMicrosoftTokens(microsoftTokens);
+                saveSession(session);
 
-            JSONObject mcToken = authenticateWithMinecraft(uhs, xstsToken.getString("Token"));
-            String accessToken = mcToken.getString("access_token");
-
-            JSONObject profile = getMinecraftProfile(accessToken);
-            String uuid = profile.getString("id");
-            String username = profile.getString("name");
-
-            AuthResult result = new AuthResult(uuid, username);
-            pendingAuth.setCompleted(true);
-            pendingAuthStates.remove(state);
-            return result;
-        } catch (Exception e) {
-            pendingAuthStates.remove(state);
-            throw e;
+                AuthResult result = toAuthResult(session);
+                pendingAuth.complete(result);
+                return result;
+            } catch (Exception e) {
+                pendingAuth.fail(e.getMessage() != null ? e.getMessage() : "Authentication failed");
+                throw e;
+            }
         }
     }
 
-    private IAuthenticationResult acquireMicrosoftToken(String code, String codeVerifier)
-            throws ExecutionException, InterruptedException {
-        AuthorizationCodeParameters params = AuthorizationCodeParameters
-                .builder(code, URI.create(redirectUri))
-                .scopes(scopes)
-                .codeVerifier(codeVerifier)
+    public synchronized AuthResult getStoredSessionSummary() throws Exception {
+        MinecraftAccountSession session = loadStoredSession();
+        return session == null ? null : toAuthResult(session);
+    }
+
+    public synchronized MinecraftAccountSession getLaunchSession() throws Exception {
+        MinecraftAccountSession session = loadStoredSession();
+        if (session == null) {
+            throw new IllegalStateException("Not logged in");
+        }
+
+        if (!session.hasRefreshToken()) {
+            if (isMinecraftTokenStillUsable(session)) {
+                return session;
+            }
+            throw new IllegalStateException("Stored session cannot be refreshed anymore. Please log in again.");
+        }
+
+        if (!needsRefresh(session)) {
+            return session;
+        }
+
+        try {
+            OAuthTokenResponse refreshedTokens = refreshMicrosoftTokens(
+                    session.microsoftRefreshToken(),
+                    session.microsoftRefreshToken());
+            MinecraftAccountSession refreshedSession = createSessionFromMicrosoftTokens(refreshedTokens);
+            saveSession(refreshedSession);
+            return refreshedSession;
+        } catch (Exception refreshError) {
+            if (isMinecraftTokenStillUsable(session)) {
+                return session;
+            }
+
+            if (looksLikeInvalidGrant(refreshError.getMessage())) {
+                logout();
+            }
+            throw refreshError;
+        }
+    }
+
+    public synchronized void logout() throws Exception {
+        currentSession = null;
+        accountStore.clear();
+    }
+
+    private synchronized MinecraftAccountSession loadStoredSession() throws Exception {
+        if (currentSession != null) {
+            return currentSession;
+        }
+
+        currentSession = accountStore.load();
+        return currentSession;
+    }
+
+    private synchronized void saveSession(MinecraftAccountSession session) throws Exception {
+        accountStore.save(session);
+        currentSession = session;
+    }
+
+    private String buildAuthUrl(String state, String codeVerifier) {
+        String codeChallenge = codeChallengeFrom(codeVerifier);
+        HttpUrl url = new HttpUrl.Builder()
+                .scheme("https")
+                .host("login.microsoftonline.com")
+                .addPathSegment("consumers")
+                .addPathSegment("oauth2")
+                .addPathSegment("v2.0")
+                .addPathSegment("authorize")
+                .addQueryParameter("client_id", clientId)
+                .addQueryParameter("response_type", "code")
+                .addQueryParameter("redirect_uri", redirectUri)
+                .addQueryParameter("response_mode", "query")
+                .addQueryParameter("scope", scopeString)
+                .addQueryParameter("prompt", "select_account")
+                .addQueryParameter("state", state)
+                .addQueryParameter("code_challenge", codeChallenge)
+                .addQueryParameter("code_challenge_method", "S256")
+                .build();
+        return url.toString();
+    }
+
+    private OAuthTokenResponse exchangeAuthorizationCode(String code, String codeVerifier) throws Exception {
+        FormBody body = new FormBody.Builder()
+                .add("client_id", clientId)
+                .add("grant_type", "authorization_code")
+                .add("code", code)
+                .add("redirect_uri", redirectUri)
+                .add("scope", scopeString)
+                .add("code_verifier", codeVerifier)
+                .build();
+        return requestMicrosoftTokens(body, "");
+    }
+
+    private OAuthTokenResponse refreshMicrosoftTokens(String refreshToken, String fallbackRefreshToken) throws Exception {
+        FormBody body = new FormBody.Builder()
+                .add("client_id", clientId)
+                .add("grant_type", "refresh_token")
+                .add("refresh_token", refreshToken)
+                .add("scope", scopeString)
+                .build();
+        return requestMicrosoftTokens(body, fallbackRefreshToken);
+    }
+
+    private OAuthTokenResponse requestMicrosoftTokens(FormBody body, String fallbackRefreshToken) throws Exception {
+        Request request = new Request.Builder()
+                .url(TOKEN_ENDPOINT)
+                .post(body)
+                .header("Accept", "application/json")
                 .build();
 
-        return msalApp.acquireToken(params).get();
+        try (Response response = httpClient.newCall(request).execute()) {
+            String content = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                throw new IllegalStateException(buildMicrosoftTokenError(content, response.code()));
+            }
+
+            JSONObject json = new JSONObject(content);
+            long expiresInSeconds = json.optLong("expires_in", 3600L);
+            String refreshToken = json.optString("refresh_token", fallbackRefreshToken);
+            return new OAuthTokenResponse(
+                    json.getString("access_token"),
+                    refreshToken,
+                    System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(expiresInSeconds));
+        }
+    }
+
+    private String buildMicrosoftTokenError(String responseBody, int statusCode) {
+        try {
+            JSONObject json = new JSONObject(responseBody);
+            String description = json.optString("error_description", "");
+            String error = json.optString("error", "Authentication failed");
+            if (!description.isBlank()) {
+                return description;
+            }
+            return "HTTP " + statusCode + ": " + error;
+        } catch (Exception ignored) {
+            return "HTTP " + statusCode + " while requesting Microsoft tokens";
+        }
+    }
+
+    private MinecraftAccountSession createSessionFromMicrosoftTokens(OAuthTokenResponse microsoftTokens) throws Exception {
+        JSONObject xboxToken = authenticateWithXboxLive(microsoftTokens.accessToken());
+        String xboxJwt = xboxToken.getString("Token");
+
+        JSONObject xstsToken = getXSTSToken(xboxJwt);
+        JSONObject displayClaims = xstsToken.getJSONObject("DisplayClaims");
+        JSONArray xui = displayClaims.getJSONArray("xui");
+        JSONObject firstXui = xui.getJSONObject(0);
+        String userHash = firstXui.getString("uhs");
+        String xuid = firstXui.optString("xid", firstXui.optString("xuid", ""));
+
+        JSONObject minecraftToken = authenticateWithMinecraft(userHash, xstsToken.getString("Token"));
+        long minecraftExpiresInSeconds = minecraftToken.optLong("expires_in", 86400L);
+        String minecraftAccessToken = minecraftToken.getString("access_token");
+
+        JSONObject profile = getMinecraftProfile(minecraftAccessToken);
+        return new MinecraftAccountSession(
+                profile.getString("id"),
+                profile.getString("name"),
+                minecraftAccessToken,
+                System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(minecraftExpiresInSeconds),
+                microsoftTokens.accessToken(),
+                microsoftTokens.accessTokenExpiresAt(),
+                microsoftTokens.refreshToken(),
+                userHash,
+                xuid);
+    }
+
+    private boolean needsRefresh(MinecraftAccountSession session) {
+        long now = System.currentTimeMillis();
+        return session.minecraftAccessTokenExpiresAt() <= now + REFRESH_SAFETY_WINDOW_MS
+                || session.microsoftAccessTokenExpiresAt() <= now + REFRESH_SAFETY_WINDOW_MS;
+    }
+
+    private boolean isMinecraftTokenStillUsable(MinecraftAccountSession session) {
+        return session.minecraftAccessTokenExpiresAt() > System.currentTimeMillis() + 60_000L;
+    }
+
+    private boolean looksLikeInvalidGrant(String message) {
+        return message != null && message.toLowerCase().contains("invalid_grant");
+    }
+
+    private AuthResult toAuthResult(MinecraftAccountSession session) {
+        return new AuthResult(session.uuid(), session.username());
     }
 
     private JSONObject authenticateWithXboxLive(String accessToken) throws Exception {
