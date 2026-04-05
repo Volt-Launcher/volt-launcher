@@ -665,7 +665,7 @@ onBeforeUnmount(() => {
                   </div>
                 </section>
 
-                <section class="launcher-panel launcher-hero-stage relative isolate overflow-hidden">
+                <section v-if="activeTab === 'play'" class="launcher-panel launcher-hero-stage relative isolate overflow-hidden">
                   <div aria-hidden="true" class="pointer-events-none absolute inset-0">
                     <div class="absolute inset-0 bg-[linear-gradient(to_right,rgba(59,130,246,0.16)_1px,transparent_1px),linear-gradient(to_bottom,rgba(59,130,246,0.16)_1px,transparent_1px)] bg-size-[120px_74px] opacity-60" />
                     <div class="absolute inset-x-0 bottom-0 h-56 bg-[linear-gradient(to_top,rgba(37,99,235,0.26),transparent)]" />

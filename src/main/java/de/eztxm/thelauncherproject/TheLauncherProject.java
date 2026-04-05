@@ -35,7 +35,7 @@ public class TheLauncherProject extends Application {
         super.stop();
     }
 
-    public static void main(String[] args) {
+    static void main(String[] args) {
         launch(TheLauncherProject.class, args);
     }
 
