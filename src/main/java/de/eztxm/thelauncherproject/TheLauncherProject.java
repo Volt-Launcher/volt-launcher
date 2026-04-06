@@ -10,11 +10,17 @@ import org.cef.handler.CefLifeSpanHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.Arrays;
 
 public class TheLauncherProject {
+
+    private static final Color APP_BG = new Color(3, 9, 18);
 
     private static volatile RestServer restServer;
     private static volatile CefApp cefApp;
@@ -40,55 +46,53 @@ public class TheLauncherProject {
     }
 
     private static JFrame buildMainWindow(CefApp app) {
-        Toolkit.getDefaultToolkit().setDynamicLayout(false);
         JFrame frame = new JFrame("TheLauncherProject");
         frame.setSize(1280, 720);
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        frame.getContentPane().setBackground(APP_BG);
 
         CefClient client = app.createClient();
         attachPopupHandler(client, frame);
 
         CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
-
         Component browserUI = browser.getUIComponent();
+
+        // Hintergrundfarbe setzen damit Flackern beim Resize dunkler statt weiß ist
+        if (browserUI instanceof JComponent jc) {
+            jc.setBackground(APP_BG);
+            jc.setOpaque(true);
+        }
+
         browserUI.setFocusable(true);
-        browserUI.addMouseListener(new java.awt.event.MouseAdapter() {
+        browserUI.addMouseListener(new MouseAdapter() {
             @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
                 browserUI.requestFocusInWindow();
             }
         });
-        browserUI.addComponentListener(new java.awt.event.ComponentAdapter() {
-            private javax.swing.Timer debounce;
+
+        // Resize-Events debounced weitermelden — verhindert konstantes
+        // Neu-Rendern bei jedem einzelnen Pixel während des Ziehens
+        browserUI.addComponentListener(new ComponentAdapter() {
+            private Timer debounce;
 
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 if (debounce != null && debounce.isRunning()) {
                     debounce.restart();
                 } else {
-                    debounce = new javax.swing.Timer(80, ev -> {
-                        browser.executeJavaScript(
-                                "window.dispatchEvent(new Event('resize'));",
-                                browser.getURL(), 0
-                        );
-                    });
+                    debounce = new Timer(80, ev ->
+                            browser.executeJavaScript(
+                                    "window.dispatchEvent(new Event('resize'));",
+                                    browser.getURL(), 0
+                            )
+                    );
                     debounce.setRepeats(false);
                     debounce.start();
                 }
             }
         });
-
-        JPanel browserHolder = new JPanel(new BorderLayout());
-        browserHolder.setBackground(Color.BLACK);
-        frame.getContentPane().add(browserHolder, BorderLayout.CENTER);
-        browserHolder.add(browserUI, BorderLayout.CENTER);
-
-        Color appBg = new Color(3, 9, 18);
-        frame.setBackground(appBg);
-        frame.getContentPane().setBackground(appBg);
-        browserHolder.setBackground(appBg);
-        browserUI.setBackground(appBg);
 
         frame.getContentPane().add(browserUI, BorderLayout.CENTER);
 
@@ -102,7 +106,6 @@ public class TheLauncherProject {
         });
 
         frame.setVisible(true);
-
         return frame;
     }
 
