@@ -25,6 +25,7 @@ public class TheLauncherProject extends Application {
         stage.setTitle("TheLauncherProject");
         stage.setScene(scene);
         stage.show();
+
     }
 
     @Override
