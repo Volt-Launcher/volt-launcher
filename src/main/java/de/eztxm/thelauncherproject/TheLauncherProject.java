@@ -43,6 +43,16 @@ public class TheLauncherProject {
                 shutdown();
             }
         });
+        Thread.sleep(500L);
+
+        WebView webView = createConfiguredWebView(stage, false);
+        webView.getEngine().load("http://localhost:7070/");
+
+        Scene scene = new Scene(webView, 1280.0, 720.0);
+        stage.setTitle("TheLauncherProject");
+        stage.setScene(scene);
+        stage.show();
+
     }
 
     private static JFrame buildMainWindow(CefApp app) {

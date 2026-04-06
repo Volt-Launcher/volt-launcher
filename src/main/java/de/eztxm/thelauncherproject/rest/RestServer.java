@@ -1,20 +1,18 @@
 package de.eztxm.thelauncherproject.rest;
 
 import de.eztxm.thelauncherproject.launcher.*;
+import de.eztxm.thelauncherproject.launcher.MinecraftLauncherService;
 import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.AuthResult;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.AuthFlowStatus;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.PendingAuth;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.StartAuthResult;
+import de.eztxm.thelauncherproject.rest.routes.impl.*;
+import de.eztxm.thelauncherproject.rest.routes.impl.auth.*;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 public class RestServer {
 
     private final int port;
     private Javalin app;
+    private RouteManager routeManager;
     private final MicrosoftAuth msAuth;
     private final MinecraftLauncherService minecraftLauncher;
 
@@ -26,19 +24,35 @@ public class RestServer {
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize launcher services", e);
         }
+        this.routeManager = new RouteManager();
+
+        this.routeManager.register(new Test());
+
+        this.routeManager.register(new GetSession(this.msAuth));
+        this.routeManager.register(new GetLogin(this.msAuth));
+        this.routeManager.register(new PostLogout(this.msAuth));
+        this.routeManager.register(new GetCallback(this.msAuth));
+        this.routeManager.register(new GetAuthStatus(this.msAuth));
+        this.routeManager.register(new PostAuthSubmit(this.msAuth));
+
+        this.routeManager.register(new GetInstances(this.minecraftLauncher));
+        this.routeManager.register(new GetInstancesVersions(this.minecraftLauncher));
+        this.routeManager.register(new PostInstances(this.minecraftLauncher));
+        this.routeManager.register(new PostInstanceLaunch(this.minecraftLauncher, this.msAuth));
+        this.routeManager.register(new PostInstanceStop(this.minecraftLauncher));
     }
 
     public void start() {
-        app = Javalin.create(config -> {
+        this.app = this.routeManager.createJavalin(config -> {
             config.staticFiles.add(staticFiles -> {
-            	staticFiles.hostedPath = "/";
-            	staticFiles.directory = "/dist";
-            	staticFiles.location = Location.CLASSPATH;
+                staticFiles.hostedPath = "/";
+                staticFiles.directory = "/dist";
+                staticFiles.location = Location.CLASSPATH;
             });
 
             config.bundledPlugins.enableCors(cors -> cors.addRule(rule -> rule.anyHost()));
 
-            config.router.mount(router -> router.beforeMatched(ctx -> {
+            config.routes.beforeMatched(ctx -> {
                 String path = ctx.path();
                 if (!path.startsWith("/api")
                         && !path.startsWith("/callback")
@@ -364,7 +378,9 @@ public class RestServer {
                         e.getMessage(),
                         false));
             }
+            });
         });
+        this.app.start(port);
 
         System.out.println("Javalin server started on http://localhost:" + port);
         System.out.println("UI available at http://localhost:" + port);
@@ -377,7 +393,7 @@ public class RestServer {
         }
     }
 
-    private String buildCallbackPage(String title, String message, boolean success) {
+    public static String buildCallbackPage(String title, String message, boolean success) {
         String safeTitle = escapeHtml(title);
         String safeMessage = escapeHtml(message != null ? message : "Authentication finished.");
         String accentColor = success ? "#16a34a" : "#dc2626";
@@ -443,7 +459,7 @@ public class RestServer {
                 """.formatted(safeTitle, accentColor, accentColor, safeTitle, safeMessage);
     }
 
-    private String escapeHtml(String value) {
+    public static String escapeHtml(String value) {
         if (value == null) {
             return "";
         }
@@ -487,6 +503,7 @@ public class RestServer {
     }
 
     private void logError(String message, Exception exception) {
+    public static void logError(String message, Exception exception) {
         System.err.println("[RestServer] " + message + ": " + exception.getMessage());
         exception.printStackTrace(System.err);
     }
