@@ -50,7 +50,7 @@ button, input, select { font: inherit; }
 .wr { background: #ff5f57; } .wy { background: #febc2e; } .wg { background: #28c840; }
 
 /* BODY / VIEWS */
-.body { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; z-index: 10; }
+.body { flex: 1; display: flex; flex-direction: column; position: relative; z-index: 10; }
 .view { display: none; flex: 1; overflow: hidden; }
 .view.on { display: flex; }
 
@@ -92,7 +92,30 @@ button, input, select { font: inherit; }
 .ns-hdr h3 { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: var(--text-muted); }
 .news-scroll { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .news-scroll::-webkit-scrollbar { width: 3px; }
-.news-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 2px; }
+.news-scroll::-webkit-scrollbar-track,
+.profiles-grid::-webkit-scrollbar-track,
+.disc-content::-webkit-scrollbar-track,
+.settings-inner::-webkit-scrollbar-track,
+.settings-content::-webkit-scrollbar-track {
+    background: rgba(255,255,255,.03);
+    border-radius: 2px;
+}
+.news-scroll::-webkit-scrollbar-thumb,
+.profiles-grid::-webkit-scrollbar-thumb,
+.disc-content::-webkit-scrollbar-thumb,
+.settings-inner::-webkit-scrollbar-thumb,
+.settings-content::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,.15);
+    border-radius: 2px;
+}
+
+.news-scroll::-webkit-scrollbar-thumb:hover,
+.profiles-grid::-webkit-scrollbar-thumb:hover,
+.disc-content::-webkit-scrollbar-thumb:hover,
+.settings-inner::-webkit-scrollbar-thumb:hover,
+.settings-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,.28);
+}
 .nc { background: var(--panel-bg); border: 1px solid rgba(255,255,255,.06); border-radius: 10px; overflow: hidden; cursor: pointer; transition: all .25s; }
 .nc:hover { border-color: rgba(0,178,255,.28); transform: translateX(-3px); box-shadow: 4px 0 20px rgba(0,178,255,.1); }
 .nc-thumb { height: 110px; position: relative; overflow: hidden; }

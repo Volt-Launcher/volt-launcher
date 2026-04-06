@@ -10,10 +10,9 @@ import org.cef.handler.CefLifeSpanHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.MouseWheelEvent;
-import java.awt.event.MouseWheelListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.Arrays;
 
 public class TheLauncherProject {
 
@@ -24,9 +23,12 @@ public class TheLauncherProject {
         restServer = new RestServer(7070);
         restServer.start();
 
+        String[] cefArgs = Arrays.copyOf(args, args.length + 1);
+        cefArgs[args.length] = "--disable-features=OverlayScrollbar";
+
         Thread.ofVirtual().start(() -> {
             try {
-                CefApp app = JcefBootstrap.initialize(args);
+                CefApp app = JcefBootstrap.initialize(cefArgs);
                 cefApp = app;
                 SwingUtilities.invokeLater(() -> buildMainWindow(app));
             } catch (Exception e) {
@@ -38,27 +40,58 @@ public class TheLauncherProject {
     }
 
     private static JFrame buildMainWindow(CefApp app) {
+        Toolkit.getDefaultToolkit().setDynamicLayout(false);
         JFrame frame = new JFrame("TheLauncherProject");
         frame.setSize(1280, 720);
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
-        frame.addWindowListener(new WindowAdapter() {
+        CefClient client = app.createClient();
+        attachPopupHandler(client, frame);
+
+        CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
+
+        Component browserUI = browser.getUIComponent();
+        browserUI.setFocusable(true);
+        browserUI.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
-            public void windowClosing(WindowEvent e) {
-                shutdown();
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                browserUI.requestFocusInWindow();
+            }
+        });
+        browserUI.addComponentListener(new java.awt.event.ComponentAdapter() {
+            private javax.swing.Timer debounce;
+
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                if (debounce != null && debounce.isRunning()) {
+                    debounce.restart();
+                } else {
+                    debounce = new javax.swing.Timer(80, ev -> {
+                        browser.executeJavaScript(
+                                "window.dispatchEvent(new Event('resize'));",
+                                browser.getURL(), 0
+                        );
+                    });
+                    debounce.setRepeats(false);
+                    debounce.start();
+                }
             }
         });
 
-        frame.setVisible(true);
+        JPanel browserHolder = new JPanel(new BorderLayout());
+        browserHolder.setBackground(Color.BLACK);
+        frame.getContentPane().add(browserHolder, BorderLayout.CENTER);
+        browserHolder.add(browserUI, BorderLayout.CENTER);
 
-        CefClient client = app.createClient();
-        attachPopupHandler(client, frame);
-        CefBrowser browser = client.createBrowser("http://localhost:7070/", false, false);
+        Color appBg = new Color(3, 9, 18);
+        frame.setBackground(appBg);
+        frame.getContentPane().setBackground(appBg);
+        browserHolder.setBackground(appBg);
+        browserUI.setBackground(appBg);
 
-        for (var listener : frame.getWindowListeners()) {
-            frame.removeWindowListener(listener);
-        }
+        frame.getContentPane().add(browserUI, BorderLayout.CENTER);
+
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -68,8 +101,7 @@ public class TheLauncherProject {
             }
         });
 
-        frame.getContentPane().add(browser.getUIComponent(), BorderLayout.CENTER);
-        frame.validate();
+        frame.setVisible(true);
 
         return frame;
     }
@@ -110,14 +142,10 @@ public class TheLauncherProject {
 
     private static void shutdown() {
         try {
-            if (restServer != null) {
-                restServer.stop();
-            }
+            if (restServer != null) restServer.stop();
         } catch (Exception _) {}
         try {
-            if (cefApp != null) {
-                cefApp.dispose();
-            }
+            if (cefApp != null) cefApp.dispose();
         } catch (Exception _) {}
         System.exit(0);
     }
