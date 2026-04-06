@@ -1,24 +1,28 @@
 <script setup lang="ts">
+import { Icon } from "@iconify/vue";
 import { useLauncher } from '@/composables/useLauncher';
 const {
-  authData, instances, availableVersions,
-  selectedInstanceName, newInstanceName, selectedVersionId,
-  includeSnapshots, includeBetas, includeAlphas,
-  isAuthenticating, isLaunching, isCreatingInstance, isLoadingInstances, isLoadingVersions,
-  error, launcherMessage, authUrl, authState, authWindowWasClosed,
-  activeTab, showCreateModal, profileFilter, discoverTabActive, settingsNavItem, accentColor, toggleStates,
-  selectedInstance, runningInstancesCount, selectedVersion,
-  playerName, playerSkinUrl, playerSkinFallback, playerAvatarUrl, playerAvatarFallback, filteredInstances,
-  versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime,
-  handleLogin, handleLogout, handleCreateInstance, handleLaunch, handleStop,
-  loadInstances, loadVersions, setAccentColor, handleImgError
+  activeTab,
+  playerSkinUrl,
+  playerSkinFallback,
+  handleImgError,
 } = useLauncher();
 </script>
 <template>
-<div class="view" :class="{ on: activeTab === 'skins' }" style="flex:1;align-items:center;justify-content:center;flex-direction:column;gap:16px">
-      <div style="font-size:48px">👤</div>
-      <div style="font-size:18px;font-weight:700;letter-spacing:.12em">SKINS</div>
-      <div style="font-size:12px;color:var(--text-faint);text-align:center;max-width:260px;line-height:1.6">Skin-Verwaltung wird in einer zukünftigen Version verfügbar sein.</div>
-      <img :src="playerSkinUrl" :data-fallback-src="playerSkinFallback" alt="Skin" @error="handleImgError" style="height:180px;object-fit:contain;filter:drop-shadow(0 12px 32px rgba(0,178,255,.28));margin-top:8px" />
+  <div class="flex-1 items-center justify-center" :class="activeTab === 'skins' ? 'flex' : 'hidden'">
+    <div class="flex flex-col items-center justify-center gap-4 px-6 text-center">
+      <div class="rounded-full border border-white/10 bg-white/5 p-5 text-[var(--primary)] shadow-[0_0_24px_rgba(0,178,255,.18)]">
+        <Icon icon="lucide:shirt" class="size-12" />
+      </div>
+      <div class="text-[18px] font-bold tracking-[0.12em] text-white">SKINS</div>
+      <div class="max-w-[260px] text-[12px] leading-[1.6] text-white/40">Skin-Verwaltung wird in einer zukünftigen Version verfügbar sein.</div>
+      <img
+        :src="playerSkinUrl"
+        :data-fallback-src="playerSkinFallback"
+        alt="Skin"
+        class="mt-2 h-[180px] object-contain drop-shadow-[0_12px_32px_rgba(0,178,255,.28)]"
+        @error="handleImgError"
+      />
     </div>
+  </div>
 </template>

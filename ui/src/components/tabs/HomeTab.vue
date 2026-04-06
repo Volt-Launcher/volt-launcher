@@ -1,94 +1,205 @@
 <script setup lang="ts">
-import { Icon } from "@iconify/vue";
-import { useLauncher } from '@/composables/useLauncher';
+import {Icon} from "@iconify/vue";
+import {useLauncher} from "@/composables/useLauncher";
+
 const {
-  authData, instances, availableVersions,
-  selectedInstanceName, newInstanceName, selectedVersionId,
-  includeSnapshots, includeBetas, includeAlphas,
-  isAuthenticating, isLaunching, isCreatingInstance, isLoadingInstances, isLoadingVersions,
-  error, launcherMessage, authUrl, authState, authWindowWasClosed,
-  activeTab, showCreateModal, profileFilter, discoverTabActive, settingsNavItem, accentColor, toggleStates,
-  selectedInstance, runningInstancesCount, selectedVersion,
-  playerName, playerSkinUrl, playerSkinFallback, playerAvatarUrl, playerAvatarFallback, filteredInstances,
-  versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime,
-  handleLogin, handleLogout, handleCreateInstance, handleLaunch, handleStop,
-  loadInstances, loadVersions, setAccentColor, handleImgError
+  authData,
+  instances,
+  isAuthenticating,
+  isLaunching,
+  activeTab,
+  selectedInstance,
+  runningInstancesCount,
+  playerSkinUrl,
+  playerSkinFallback,
+  formatRelativeDate,
+  handleLogin,
+  handleLaunch,
+  handleStop,
+  handleImgError,
 } = useLauncher();
+
+const newsItems = [
+  {
+    emoji: "🚀",
+    title: "Launcher v1.0.0 Release",
+    description: "Neues Top-Nav-Design, Discover-Tab und Status Bar jetzt live.",
+    date: "05. April 2026",
+    badge: "UPDATE",
+    badgeClasses:
+        "border border-cyan-500/30 bg-cyan-500/20 text-cyan-400",
+    backgroundClass: "bg-slate-900",
+  },
+  {
+    emoji: "✨",
+    title: "Oster Collection 2026",
+    description: "Animierte Cloaks und Easter Skins – nur für kurze Zeit!",
+    date: "03. April 2026",
+    badge: "SHOP",
+    badgeClasses:
+        "border border-violet-500/30 bg-violet-500/20 text-violet-400",
+    backgroundClass: "bg-violet-950",
+  },
+  {
+    emoji: "🎉",
+    title: "Heaven Collection Drop",
+    description: "Limitierte Belohnungen bis Ende April.",
+    date: "01. April 2026",
+    badge: "EVENT",
+    badgeClasses:
+        "border border-emerald-500/30 bg-emerald-500/20 text-emerald-400",
+    backgroundClass: "bg-emerald-950",
+  },
+] as const;
 </script>
+
 <template>
-<div class="view home" :class="{ on: activeTab === 'home' }">
-      <div class="home-main">
-        <div class="floor">
-          <svg viewBox="0 0 800 240" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-            <defs><linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(0,178,255,0.2)" /><stop offset="100%" stop-color="rgba(0,178,255,0)" /></linearGradient></defs>
-            <line x1="0" y1="20" x2="800" y2="20" stroke="url(#fg)" stroke-width=".6" /><line x1="0" y1="60" x2="800" y2="60" stroke="url(#fg)" stroke-width=".5" />
-            <line x1="0" y1="110" x2="800" y2="110" stroke="url(#fg)" stroke-width=".5" /><line x1="0" y1="165" x2="800" y2="165" stroke="url(#fg)" stroke-width=".5" />
-            <line x1="0" y1="220" x2="800" y2="220" stroke="url(#fg)" stroke-width=".5" /><line x1="400" y1="0" x2="400" y2="240" stroke="rgba(0,178,255,0.12)" stroke-width=".6" />
-            <line x1="400" y1="0" x2="0" y2="240" stroke="rgba(0,178,255,0.05)" stroke-width=".5" /><line x1="400" y1="0" x2="800" y2="240" stroke="rgba(0,178,255,0.05)" stroke-width=".5" />
-            <line x1="400" y1="0" x2="140" y2="240" stroke="rgba(0,178,255,0.06)" stroke-width=".5" /><line x1="400" y1="0" x2="660" y2="240" stroke="rgba(0,178,255,0.06)" stroke-width=".5" />
-            <line x1="400" y1="0" x2="275" y2="240" stroke="rgba(0,178,255,0.07)" stroke-width=".5" /><line x1="400" y1="0" x2="525" y2="240" stroke="rgba(0,178,255,0.07)" stroke-width=".5" />
-          </svg>
-        </div>
-        <div class="floor-fade"></div>
-        <div class="player-area fi fi1">
-          <div class="pname">{{ authData ? authData.username.toUpperCase() : 'SPIELER' }}</div>
-          <div class="skin-wrap">
-            <div class="skin-halo"></div>
-            <img class="skin" :src="playerSkinUrl" :data-fallback-src="playerSkinFallback" alt="Skin" @error="handleImgError" @click="activeTab = 'skins'" />
+  <div
+      class="flex-1 overflow-hidden"
+      :class="activeTab === 'home' ? 'flex' : 'hidden'"
+  >
+    <div
+        class="grid h-full min-w-0 grid-cols-5 gap-6 overflow-hidden px-4 py-5 md:px-6"
+    >
+      <!-- LEFT -->
+      <div
+          class="relative col-span-4 min-w-0 flex flex-col items-center justify-between overflow-hidden rounded-2xl bg-slate-900 p-6"
+      >
+        <div
+            class="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-slate-950 to-transparent"
+        />
+
+        <div
+            class="relative z-10 flex flex-1 flex-col items-center justify-center"
+        >
+          <div
+              class="mb-5 text-center text-2xl font-bold tracking-widest text-cyan-400"
+          >
+            {{ authData ? authData.username.toUpperCase() : "SPIELER" }}
           </div>
-          <div class="srv-label">{{ selectedInstance?.running ? `▶ ${selectedInstance.name}` : 'HUGOSMP.NET' }}</div>
-        </div>
-        <div class="stat-strip fi fi2">
-          <div class="sc">
-            <div class="sc-v">{{ instances.length }}</div>
-            <div class="sc-l">PROFILE</div>
+
+          <img
+              class="h-64 cursor-pointer object-contain transition-transform duration-300 hover:scale-105"
+              :src="playerSkinUrl"
+              :data-fallback-src="playerSkinFallback"
+              alt="Skin"
+              @error="handleImgError"
+              @click="activeTab = 'skins'"
+          />
+
+          <div class="mt-2 text-xs tracking-widest text-white/40">
+            {{ selectedInstance?.running ? selectedInstance.name : "HUGOSMP.NET" }}
           </div>
-          <div class="sc">
-            <div class="sc-v" :style="runningInstancesCount > 0 ? 'color:var(--accent)' : ''">{{ runningInstancesCount }}</div>
-            <div class="sc-l">AKTIV</div>
-          </div>
         </div>
-        <div class="lbar fi fi3">
-          <div class="lbar-info">
-            <div class="lbar-name">{{ selectedInstance ? selectedInstance.name : (authData ? 'Kein Profil ausgewählt' : 'Bitte anmelden') }}</div>
-            <div class="lbar-meta">
-              <span v-if="selectedInstance"><Icon icon="lucide:layers" class="w-[1em] h-[1em]" />{{ selectedInstance.versionId }}</span>
-              <span v-if="selectedInstance"><Icon icon="lucide:cpu" class="w-[1em] h-[1em]" />Java {{ selectedInstance.javaMajorVersion }}</span>
-              <span v-if="selectedInstance"><Icon icon="lucide:clock" class="w-[1em] h-[1em]" />{{ formatRelativeDate(selectedInstance.lastPlayedAt) }}</span>
-              <span v-if="!selectedInstance && !authData" style="color:var(--text-faint)">Microsoft-Login erforderlich</span>
-              <span v-if="!selectedInstance && authData" style="color:var(--text-faint)">Profil im PROFILES-Tab wählen</span>
+
+        <div
+            class="relative z-10 flex w-full max-w-3xl flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/80 px-5 py-3 backdrop-blur-xl"
+        >
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm font-bold text-white">
+              {{
+                selectedInstance
+                    ? selectedInstance.name
+                    : authData
+                        ? "Kein Profil ausgewählt"
+                        : "Bitte anmelden"
+              }}
+            </div>
+
+            <div class="mt-1 flex flex-wrap gap-3 text-xs text-white/60">
+              <span v-if="selectedInstance" class="inline-flex items-center gap-1">
+                <Icon icon="lucide:layers" class="size-3"/>
+                {{ selectedInstance.versionId }}
+              </span>
+
+              <span v-if="selectedInstance" class="inline-flex items-center gap-1">
+                <Icon icon="lucide:cpu" class="size-3"/>
+                Java {{ selectedInstance.javaMajorVersion }}
+              </span>
+
+              <span v-if="selectedInstance" class="inline-flex items-center gap-1">
+                <Icon icon="lucide:clock" class="size-3"/>
+                {{ formatRelativeDate(selectedInstance.lastPlayedAt) }}
+              </span>
             </div>
           </div>
-          <button v-if="selectedInstance?.running" class="launch-btn" @click="handleStop" :disabled="isLaunching">
-            <Icon icon="lucide:square" class="w-[1em] h-[1em]" />{{ isLaunching ? 'STOPPE…' : 'STOPP' }}
+
+          <button
+              v-if="selectedInstance?.running"
+              class="rounded-lg bg-cyan-500 px-6 py-3 text-sm font-bold text-white"
+              :disabled="isLaunching"
+              @click="handleStop"
+          >
+            STOPP
           </button>
-          <button v-else-if="authData && selectedInstance" class="launch-btn" @click="handleLaunch" :disabled="isLaunching">
-            <Icon icon="lucide:play" class="w-[1em] h-[1em]" />{{ isLaunching ? 'STARTET…' : 'LAUNCH' }}
+
+          <button
+              v-else-if="authData && selectedInstance"
+              class="rounded-lg bg-cyan-500 px-6 py-3 text-sm font-bold text-white"
+              :disabled="isLaunching"
+              @click="handleLaunch"
+          >
+            LAUNCH
           </button>
-          <button v-else-if="!authData" class="launch-btn" @click="handleLogin" :disabled="isAuthenticating">
-            <Icon icon="lucide:log-in" class="w-[1em] h-[1em]" />{{ isAuthenticating ? 'WARTEN…' : 'LOGIN' }}
+
+          <button
+              v-else-if="!authData"
+              class="rounded-lg bg-cyan-500 px-6 py-3 text-sm font-bold text-white"
+              :disabled="isAuthenticating"
+              @click="handleLogin"
+          >
+            LOGIN
           </button>
-          <button v-else class="launch-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);box-shadow:none" @click="activeTab = 'profiles'">
-            <Icon icon="lucide:layers" class="w-[1em] h-[1em]" />PROFIL WÄHLEN
-          </button>
-          <div class="lgear" @click="activeTab = 'settings'">
-            <Icon icon="lucide:settings" class="w-[1em] h-[1em]" />
-          </div>
         </div>
       </div>
-      <!-- News Side -->
-      <div class="news-side">
-        <div class="ns-hdr">
-          <Icon icon="lucide:newspaper" class="w-[1em] h-[1em]" />
-          <h3>NEWS &amp; UPDATES</h3>
+
+      <!-- RIGHT SIDEBAR -->
+      <div
+          class="col-span-1 flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/80 backdrop-blur-xl"
+      >
+        <div class="flex items-center gap-2 border-b border-white/10 px-4 py-4">
+          <Icon icon="lucide:newspaper" class="size-4 text-cyan-400"/>
+          <h3 class="text-xs font-bold tracking-widest text-white/60">
+            NEWS & UPDATES
+          </h3>
         </div>
-        <div class="news-scroll">
-          <div class="nc fi fi1"><div class="nc-thumb"><div class="nc-img" style="background:linear-gradient(135deg,#04213d,#081c32)">🚀</div><div class="nc-fade"></div><span class="nc-badge nb-u">UPDATE</span></div><div class="nc-body"><h4>Launcher v1.0.0 Release</h4><p>Neues Top-Nav-Design, Discover-Tab und Status Bar jetzt live.</p><div class="nc-date">05. April 2026</div></div></div>
-          <div class="nc fi fi2"><div class="nc-thumb"><div class="nc-img" style="background:linear-gradient(135deg,#180535,#2a1045)">✨</div><div class="nc-fade"></div><span class="nc-badge nb-s">SHOP</span></div><div class="nc-body"><h4>Oster Collection 2026</h4><p>Animierte Cloaks und Easter Skins – nur für kurze Zeit!</p><div class="nc-date">03. April 2026</div></div></div>
-          <div class="nc fi fi3"><div class="nc-thumb"><div class="nc-img" style="background:linear-gradient(135deg,#062512,#0d3a1a)">🎉</div><div class="nc-fade"></div><span class="nc-badge nb-e">EVENT</span></div><div class="nc-body"><h4>Heaven Collection Drop</h4><p>Limitierte Belohnungen bis Ende April.</p><div class="nc-date">01. April 2026</div></div></div>
-          <div class="nc fi fi4"><div class="nc-thumb"><div class="nc-img" style="background:linear-gradient(135deg,#251508,#3d2510)">🔧</div><div class="nc-fade"></div><span class="nc-badge nb-p">PATCH</span></div><div class="nc-body"><h4>Hotfix 1.0.1</h4><p>Startup-Crash auf Windows 11 behoben.</p><div class="nc-date">28. März 2026</div></div></div>
-          <div class="nc fi fi5"><div class="nc-thumb"><div class="nc-img" style="background:linear-gradient(135deg,#001535,#002148)">🎆</div><div class="nc-fade"></div><span class="nc-badge nb-e">EVENT</span></div><div class="nc-body"><h4>Happy New Year – Cosmetics</h4><p>Silvester-Specials dauerhaft im Shop.</p><div class="nc-date">01. Jan. 2026</div></div></div>
+
+        <div class="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+          <div
+              v-for="item in newsItems"
+              :key="item.title"
+              class="overflow-hidden rounded-xl border border-white/10 bg-slate-900"
+          >
+            <div
+                class="flex h-28 items-center justify-center text-5xl"
+                :class="item.backgroundClass"
+            >
+              {{ item.emoji }}
+            </div>
+
+            <div class="p-3">
+              <div
+                  class="mb-1 inline-flex rounded px-2 py-1 text-xs font-bold"
+                  :class="item.badgeClasses"
+              >
+                {{ item.badge }}
+              </div>
+
+              <h4 class="text-sm font-semibold text-white">
+                {{ item.title }}
+              </h4>
+
+              <p class="mt-1 text-xs text-white/60">
+                {{ item.description }}
+              </p>
+
+              <div class="mt-2 text-xs text-white/40">
+                {{ item.date }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
+  </div>
 </template>

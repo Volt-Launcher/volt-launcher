@@ -2,83 +2,159 @@
 import { Icon } from "@iconify/vue";
 import { useLauncher } from '@/composables/useLauncher';
 const {
-  authData, instances, availableVersions,
-  selectedInstanceName, newInstanceName, selectedVersionId,
-  includeSnapshots, includeBetas, includeAlphas,
-  isAuthenticating, isLaunching, isCreatingInstance, isLoadingInstances, isLoadingVersions,
-  error, launcherMessage, authUrl, authState, authWindowWasClosed,
-  activeTab, showCreateModal, profileFilter, discoverTabActive, settingsNavItem, accentColor, toggleStates,
-  selectedInstance, runningInstancesCount, selectedVersion,
-  playerName, playerSkinUrl, playerSkinFallback, playerAvatarUrl, playerAvatarFallback, filteredInstances,
-  versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime,
-  handleLogin, handleLogout, handleCreateInstance, handleLaunch, handleStop,
-  loadInstances, loadVersions, setAccentColor, handleImgError
+  authData,
+  isAuthenticating,
+  authUrl,
+  activeTab,
+  settingsNavItem,
+  accentColor,
+  toggleStates,
+  handleLogin,
+  handleLogout,
+  setAccentColor,
 } = useLauncher();
+
+const settingsItems = [
+  { id: 'Allgemein', icon: 'lucide:sun' },
+  { id: 'Darstellung', icon: 'lucide:monitor' },
+  { id: 'Java & Speicher', icon: 'lucide:layers' },
+  { id: 'Updates', icon: 'lucide:download' },
+  { id: 'Account', icon: 'lucide:user' },
+  { id: 'Erweitert', icon: 'lucide:settings-2' },
+] as const;
+
+const accentColors = [
+  { value: '#00b2ff', class: 'bg-[#00b2ff]' },
+  { value: '#6c63ff', class: 'bg-[#6c63ff]' },
+  { value: '#8b5cf6', class: 'bg-[#8b5cf6]' },
+  { value: '#ec4899', class: 'bg-[#ec4899]' },
+  { value: '#10b981', class: 'bg-[#10b981]' },
+  { value: '#00ffcc', class: 'bg-[#00ffcc]' },
+  { value: '#f59e0b', class: 'bg-[#f59e0b]' },
+  { value: '#ef4444', class: 'bg-[#ef4444]' },
+  { value: '#f97316', class: 'bg-[#f97316]' },
+  { value: '#64748b', class: 'bg-[#64748b]' },
+] as const;
+const toggleOptions = [
+  { key:'autoUpdate',name:'Auto Updates',sub:'Updates automatisch laden' },
+  { key:'discordPresence',name:'Discord Presence',sub:'Status in Discord zeigen' },
+  { key:'betaUpdates',name:'Beta Updates',sub:'Pre-Release Builds' },
+  { key:'openLogs',name:'Logs öffnen',sub:'Nach Spielstart anzeigen' },
+  { key:'hwAccel',name:'Hardware-Beschl.',sub:'GPU-Beschleunigung' },
+  { key:'hideLauncher',name:'Launcher verstecken',sub:'Beim Spielstart' },
+] as const;
+
+const performanceCards = [
+  { label: 'Simultane Downloads', value: '5', fillClass: 'w-[40%]', thumbClass: 'left-[38%]', scale: ['1', '5', '10'] },
+  { label: 'Concurrent I/O', value: '10', fillClass: 'w-[45%]', thumbClass: 'left-[43%]', scale: ['1', '10', '20'] },
+] as const;
 </script>
 <template>
-<div class="view settings-view" :class="{ on: activeTab === 'settings' }">
-      <div class="settings-inner">
-        <div class="settings-nav fi fi1">
-          <div class="snav-lbl">EINSTELLUNGEN</div>
-          <div v-for="item in [{id:'Allgemein',icon:'sun'},{id:'Darstellung',icon:'monitor'},{id:'Java & Speicher',icon:'layers'},{id:'Updates',icon:'upload'},{id:'Account',icon:'user'},{id:'Erweitert',icon:'adv'}]" :key="item.id"
-            class="snav-item" :class="{ on: settingsNavItem === item.id }" @click="settingsNavItem = item.id">
-            <svg v-if="item.icon==='sun'" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" /><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" /></svg>
-            <Icon v-else-if="item.icon==='monitor'" icon="lucide:monitor" class="w-[1em] h-[1em]" />
-            <Icon v-else-if="item.icon==='layers'" icon="lucide:layers" class="w-[1em] h-[1em]" />
-            <Icon v-else-if="item.icon==='upload'" icon="lucide:download" class="w-[1em] h-[1em]" />
-            <svg v-else-if="item.icon==='user'" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-            <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2" /><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>
-            {{ item.id }}
+  <div class="flex-1 flex-col overflow-hidden" :class="activeTab === 'settings' ? 'flex' : 'hidden'">
+    <div class="flex flex-1 flex-col gap-5 overflow-y-auto p-4 md:flex-row md:p-6">
+      <div class="flex w-full shrink-0 flex-col gap-[3px] md:w-[175px]">
+        <div class="px-[13px] pt-1 pb-2 text-[10px] font-bold tracking-[0.14em] text-white/40">EINSTELLUNGEN</div>
+        <button
+          v-for="item in settingsItems"
+          :key="item.id"
+          type="button"
+          class="flex items-center gap-2.5 rounded-lg border border-transparent px-[13px] py-[9px] text-left text-[12.5px] font-semibold tracking-[0.06em] text-white/60 transition-all duration-200 hover:bg-white/5 hover:text-white/95"
+          :class="settingsNavItem === item.id ? 'border-[rgba(0,178,255,.2)] bg-[rgba(0,178,255,.1)] text-[var(--primary)]' : ''"
+          @click="settingsNavItem = item.id"
+        >
+          <Icon :icon="item.icon" class="size-[13px]" />
+          {{ item.id }}
+        </button>
+        <div class="mt-auto pt-3">
+          <button type="button" class="inline-flex w-full items-center justify-center gap-1.5 rounded-[7px] border border-[rgba(0,178,255,.25)] bg-[rgba(0,178,255,.12)] px-3.5 py-[7px] text-[11.5px] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[rgba(0,178,255,.2)] hover:shadow-[0_0_12px_rgba(0,178,255,.2)]">
+            <Icon icon="lucide:folder-open" class="size-[11px]" />Verzeichnis
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-1 flex-col gap-3 overflow-y-auto">
+        <div v-if="settingsNavItem === 'Account'" class="rounded-xl border border-white/10 bg-[rgba(8,18,34,.78)] p-[18px]">
+          <div class="mb-1 text-[11px] font-bold tracking-[0.12em] text-white/60">ACCOUNT</div>
+          <div class="mb-[14px] text-[12px] leading-[1.55] text-white/60">Microsoft-Session verwalten</div>
+          <div v-if="authData" class="flex flex-col gap-2.5">
+            <div class="flex items-center justify-between gap-4 rounded-[10px] border border-white/10 bg-[rgba(5,13,26,.6)] p-3">
+              <div>
+                <div class="mb-1 text-[13px] font-semibold text-white">{{ authData.username }}</div>
+                <div class="font-mono text-[10px] text-white/40">{{ authData.uuid }}</div>
+              </div>
+              <button type="button" class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[11.5px] font-semibold tracking-[0.07em] text-white/45 transition-all duration-200 hover:bg-white/10" @click="handleLogout">Abmelden</button>
+            </div>
           </div>
-          <div style="margin-top:auto">
-            <button class="act-btn act-prim" style="width:100%;justify-content:center" type="button"><Icon icon="lucide:folder-open" class="w-[1em] h-[1em]" />Verzeichnis</button>
+          <div v-else class="flex flex-col gap-3">
+            <div class="text-[12px] leading-[1.6] text-white/60">Mit Microsoft anmelden um Minecraft starten zu können.</div>
+            <button type="button" class="inline-flex w-fit items-center gap-1.5 rounded-[7px] border border-[rgba(0,178,255,.25)] bg-[rgba(0,178,255,.12)] px-3.5 py-[7px] text-[11.5px] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[rgba(0,178,255,.2)] hover:shadow-[0_0_12px_rgba(0,178,255,.2)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="isAuthenticating" @click="handleLogin">
+              {{ isAuthenticating ? 'Warten…' : 'Mit Microsoft anmelden' }}
+            </button>
+            <div v-if="isAuthenticating" class="text-[11px] text-white/60">
+              Login im Popup-Fenster abschließen.
+              <a v-if="authUrl" :href="authUrl" target="_blank" rel="noopener" class="mt-1 block break-all text-[var(--primary)] underline">{{ authUrl }}</a>
+            </div>
           </div>
         </div>
-        <div class="settings-content fi fi2">
-          <!-- Account page -->
-          <div v-if="settingsNavItem === 'Account'" class="sbox">
-            <div class="sbox-title">ACCOUNT</div>
-            <div class="sbox-desc">Microsoft-Session verwalten</div>
-            <div v-if="authData" style="display:flex;flex-direction:column;gap:10px">
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:rgba(5,13,26,.6);border:1px solid rgba(255,255,255,.07);border-radius:10px">
-                <div><div style="font-size:13px;font-weight:600;margin-bottom:4px">{{ authData.username }}</div><div style="font-size:10px;color:var(--text-faint);font-family:monospace">{{ authData.uuid }}</div></div>
-                <button class="act-btn act-ghost" type="button" @click="handleLogout">Abmelden</button>
-              </div>
-            </div>
-            <div v-else style="display:flex;flex-direction:column;gap:12px">
-              <div style="font-size:12px;color:var(--text-muted);line-height:1.6">Mit Microsoft anmelden um Minecraft starten zu können.</div>
-              <button class="act-btn act-prim" type="button" @click="handleLogin" :disabled="isAuthenticating" style="align-self:flex-start">{{ isAuthenticating ? 'Warten…' : 'Mit Microsoft anmelden' }}</button>
-              <div v-if="isAuthenticating" style="font-size:11px;color:var(--text-muted)">Login im Popup-Fenster abschließen.<a v-if="authUrl" :href="authUrl" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline;display:block;margin-top:4px;word-break:break-all">{{ authUrl }}</a></div>
+        <div v-else class="flex flex-col gap-3">
+          <div class="rounded-xl border border-white/10 bg-[rgba(8,18,34,.78)] p-[18px]">
+            <div class="mb-1 flex items-center gap-[7px] text-[11px] font-bold tracking-[0.12em] text-white/60"><Icon icon="lucide:palette" class="size-[13px]" />AKZENTFARBE</div>
+            <div class="mb-[14px] text-[12px] leading-[1.55] text-white/60">Wähle deine bevorzugte Akzentfarbe für den Launcher</div>
+            <div class="flex flex-wrap gap-[7px]">
+              <button
+                v-for="c in accentColors"
+                :key="c.value"
+                type="button"
+                class="inline-block h-[30px] w-[30px] rounded-[7px] border-2 border-white/20 transition-transform duration-200 hover:scale-110"
+                :class="[c.class, accentColor === c.value ? '!border-white shadow-[0_0_10px_rgba(0,178,255,.4)]' : '']"
+                @click="setAccentColor(c.value)"
+              ></button>
             </div>
           </div>
-          <!-- Default pages -->
-          <div v-else>
-            <div class="sbox" style="margin-bottom:12px">
-              <div class="sbox-title"><Icon icon="lucide:palette" class="w-[1em] h-[1em]" />AKZENTFARBE</div>
-              <div class="sbox-desc">Wähle deine bevorzugte Akzentfarbe für den Launcher</div>
-              <div style="display:flex;gap:7px;flex-wrap:wrap">
-                <div v-for="c in ['#00b2ff','#6c63ff','#8b5cf6','#ec4899','#10b981','#00ffcc','#f59e0b','#ef4444','#f97316','#64748b']" :key="c" class="sw" :class="{ on: accentColor === c }" :style="`background:${c}`" @click="setAccentColor(c)"></div>
-              </div>
-            </div>
-            <div class="sbox" style="margin-bottom:12px">
-              <div class="sbox-title">OPTIONEN</div>
-              <div class="toggles">
-                <div class="trow" v-for="t in [{key:'autoUpdate',name:'Auto Updates',sub:'Updates automatisch laden'},{key:'discordPresence',name:'Discord Presence',sub:'Status in Discord zeigen'},{key:'betaUpdates',name:'Beta Updates',sub:'Pre-Release Builds'},{key:'openLogs',name:'Logs öffnen',sub:'Nach Spielstart anzeigen'},{key:'hwAccel',name:'Hardware-Beschl.',sub:'GPU-Beschleunigung'},{key:'hideLauncher',name:'Launcher verstecken',sub:'Beim Spielstart'}]" :key="t.key">
-                  <div><div class="tname">{{ t.name }}</div><div class="tsub">{{ t.sub }}</div></div>
-                  <button class="toggle" :class="toggleStates[t.key as keyof typeof toggleStates] ? 'on' : 'off'" type="button" :aria-pressed="toggleStates[t.key as keyof typeof toggleStates]" @click="(toggleStates[t.key as keyof typeof toggleStates] as boolean) = !toggleStates[t.key as keyof typeof toggleStates]"></button>
+
+          <div class="rounded-xl border border-white/10 bg-[rgba(8,18,34,.78)] p-[18px]">
+            <div class="mb-1 text-[11px] font-bold tracking-[0.12em] text-white/60">OPTIONEN</div>
+            <div class="grid grid-cols-1 gap-[9px] md:grid-cols-2">
+              <div v-for="t in toggleOptions" :key="t.key" class="flex items-center justify-between rounded-[10px] border border-white/10 bg-[rgba(5,13,26,.62)] px-[15px] py-[13px]">
+                <div>
+                  <div class="mb-[3px] text-[12.5px] font-semibold text-white">{{ t.name }}</div>
+                  <div class="text-[10.5px] leading-[1.45] text-white/60">{{ t.sub }}</div>
                 </div>
+                <button
+                  type="button"
+                  class="relative h-[22px] w-[40px] shrink-0 rounded-full transition-colors duration-300"
+                  :class="toggleStates[t.key as keyof typeof toggleStates] ? 'bg-[var(--primary)]' : 'bg-white/10'"
+                  :aria-pressed="toggleStates[t.key as keyof typeof toggleStates]"
+                  @click="(toggleStates[t.key as keyof typeof toggleStates] as boolean) = !toggleStates[t.key as keyof typeof toggleStates]"
+                >
+                  <span
+                    class="absolute top-[3px] h-4 w-4 rounded-full transition-all duration-300"
+                    :class="toggleStates[t.key as keyof typeof toggleStates]
+                      ? 'left-[21px] bg-white'
+                      : 'left-[3px] bg-white/40'"
+                  ></span>
+                </button>
               </div>
             </div>
-            <div class="sbox">
-              <div class="sbox-title">PERFORMANCE</div>
-              <div class="sbox-desc">Downloads und I/O-Operationen konfigurieren</div>
-              <div class="slider-grid">
-                <div><div class="slider-head"><span class="slider-label">Simultane Downloads</span><span class="slider-value">5</span></div><div class="slider-track"><div class="slider-fill" style="width:40%"></div><div class="slider-thumb" style="left:38%"></div></div><div class="slider-scale"><span>1</span><span>5</span><span>10</span></div></div>
-                <div><div class="slider-head"><span class="slider-label">Concurrent I/O</span><span class="slider-value">10</span></div><div class="slider-track"><div class="slider-fill" style="width:45%"></div><div class="slider-thumb" style="left:43%"></div></div><div class="slider-scale"><span>1</span><span>10</span><span>20</span></div></div>
+          </div>
+
+          <div class="rounded-xl border border-white/10 bg-[rgba(8,18,34,.78)] p-[18px]">
+            <div class="mb-1 text-[11px] font-bold tracking-[0.12em] text-white/60">PERFORMANCE</div>
+            <div class="mb-[14px] text-[12px] leading-[1.55] text-white/60">Downloads und I/O-Operationen konfigurieren</div>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div v-for="card in performanceCards" :key="card.label">
+                <div class="mb-2 flex justify-between"><span class="text-[11px] font-semibold text-white">{{ card.label }}</span><span class="text-[11px] font-bold text-[var(--primary)]">{{ card.value }}</span></div>
+                <div class="relative h-1 rounded-sm bg-white/10">
+                  <div class="absolute left-0 top-0 h-full rounded-sm bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)]" :class="card.fillClass"></div>
+                  <div class="absolute top-1/2 h-[13px] w-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--primary)] shadow-[0_0_8px_rgba(0,178,255,.5)]" :class="card.thumbClass"></div>
+                </div>
+                <div class="mt-[5px] flex justify-between text-[9px] text-white/20"><span>{{ card.scale[0] }}</span><span>{{ card.scale[1] }}</span><span>{{ card.scale[2] }}</span></div>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+  </div>
 </template>
+

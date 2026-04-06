@@ -176,7 +176,7 @@ const handleStop = async () => {
 
 const handleImgError = (event: Event) => { const img = event.target as HTMLImageElement; const fb = img.dataset.fallbackSrc; if (fb && img.src !== fb) img.src = fb; };
 
-const setAccentColor = (c: string) => { accentColor.value = c; document.documentElement.style.setProperty("--primary", c); };
+const setAccentColor = (c: string) => { accentColor.value = c; };
 
 // ── Lifecycle helpers ──────────────────────────────────────────────────────
 function init() {
