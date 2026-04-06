@@ -1,972 +1,310 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-
-interface AuthData {
-  uuid: string;
-  username: string;
-}
-
-interface SessionResponse {
-  success: boolean;
-  authenticated: boolean;
-  uuid?: string;
-  username?: string;
-  error?: string;
-}
-
-interface LauncherInstance {
-  name: string;
-  slug: string;
-  versionId: string;
-  versionType: string;
-  createdAt: number;
-  lastPlayedAt: number;
-  javaMajorVersion: number;
-  javaComponent: string;
-  running: boolean;
-  pid?: number;
-  startedAt?: number;
-  javaExecutable?: string;
-  runningJavaMajorVersion?: number;
-}
-
-interface AvailableVersion {
-  id: string;
-  type: string;
-  releaseTime: string;
-}
-
-const authData = ref<AuthData | null>(null);
-const instances = ref<LauncherInstance[]>([]);
-const availableVersions = ref<AvailableVersion[]>([]);
-const selectedInstanceName = ref<string>("");
-const newInstanceName = ref<string>("");
-const selectedVersionId = ref<string>("");
-const includeSnapshots = ref(false);
-const includeBetas = ref(false);
-const includeAlphas = ref(false);
-
-const isAuthenticating = ref(false);
-const isLaunching = ref(false);
-const isCreatingInstance = ref(false);
-const isLoadingInstances = ref(false);
-const isLoadingVersions = ref(false);
-
-const error = ref<string | null>(null);
-const launcherMessage = ref<string | null>(null);
-const authUrl = ref<string>("");
-const authState = ref<string>("");
-const authWindowWasClosed = ref(false);
-
-let authPopup: Window | null = null;
-let authStatusInterval: ReturnType<typeof window.setInterval> | null = null;
-let instanceRefreshInterval: ReturnType<typeof window.setInterval> | null = null;
-let authStartedAt = 0;
-
-const selectedInstance = computed<LauncherInstance | null>(() => {
-  return (
-    instances.value.find(
-      (instance) => instance.name === selectedInstanceName.value,
-    ) ?? null
-  );
-});
-
-const runningInstancesCount = computed(() => {
-  return instances.value.filter((instance) => instance.running).length;
-});
-
-const selectedVersion = computed<AvailableVersion | null>(() => {
-  return (
-    availableVersions.value.find(
-      (version) => version.id === selectedVersionId.value,
-    ) ?? null
-  );
-});
-
-type HomeTab = "play" | "library" | "create" | "account";
-
-const activeTab = ref<HomeTab>("play");
-
-const homeTabs: Array<{
-  id: HomeTab;
-  label: string;
-  description: string;
-}> = [
-  {
-    id: "play",
-    label: "Play",
-    description: "Launch, stop and session readiness",
-  },
-  {
-    id: "library",
-    label: "Library",
-    description: "Choose and inspect launcher profiles",
-  },
-  {
-    id: "create",
-    label: "Create",
-    description: "Build a new launcher profile",
-  },
-  {
-    id: "account",
-    label: "Account",
-    description: "Microsoft session and authentication flow",
-  },
-];
-
-const defaultHomeTab = homeTabs[0]!;
-
-const activeTabMeta = computed(() => {
-  return homeTabs.find((tab) => tab.id === activeTab.value) ?? defaultHomeTab;
-});
-
-const heroAvatarUrl = computed(() => {
-  const username = authData.value?.username?.trim() || "MHF_Steve";
-  return `https://mc-heads.net/body/${encodeURIComponent(username)}/right`;
-});
-
-const stopAuthPolling = () => {
-  if (authStatusInterval !== null) {
-    window.clearInterval(authStatusInterval);
-    authStatusInterval = null;
-  }
-};
-
-const stopInstanceRefresh = () => {
-  if (instanceRefreshInterval !== null) {
-    window.clearInterval(instanceRefreshInterval);
-    instanceRefreshInterval = null;
-  }
-};
-
-const resetAuthFlow = (closePopup = false) => {
-  stopAuthPolling();
-
-  if (closePopup && authPopup && !authPopup.closed) {
-    authPopup.close();
-  }
-
-  authPopup = null;
-  authStartedAt = 0;
-  authState.value = "";
-  authWindowWasClosed.value = false;
-};
-
-const formatVersionType = (type: string) => {
-  switch (type) {
-    case "release":
-      return "Release";
-    case "snapshot":
-      return "Snapshot";
-    case "old_beta":
-      return "Beta";
-    case "old_alpha":
-      return "Alpha";
-    default:
-      return type;
-  }
-};
-
-const formatDate = (timestamp: number) => {
-  if (!timestamp) {
-    return "Never";
-  }
-
-  return new Date(timestamp).toLocaleString();
-};
-
-const formatReleaseTime = (releaseTime: string) => {
-  if (!releaseTime) {
-    return "Unknown";
-  }
-
-  const date = new Date(releaseTime);
-  return Number.isNaN(date.getTime()) ? releaseTime : date.toLocaleDateString();
-};
-
-const formatJavaComponent = (component: string) => {
-  return component || "default-runtime";
-};
-
-const completeAuthentication = (data: AuthData) => {
-  authData.value = data;
-  isAuthenticating.value = false;
-  error.value = null;
-  resetAuthFlow(true);
-};
-
-const failAuthentication = (message: string, closePopup = false) => {
-  authData.value = null;
-  isAuthenticating.value = false;
-  error.value = message;
-  resetAuthFlow(closePopup);
-};
-
-const loadSession = async () => {
-  try {
-    const response = await fetch("/api/session");
-    const data = (await response.json()) as SessionResponse;
-
-    if (!data.success) {
-      authData.value = null;
-      error.value = data.error || "Failed to restore the saved session";
-      return;
-    }
-
-    if (data.authenticated && data.uuid && data.username) {
-      authData.value = { uuid: data.uuid, username: data.username };
-      return;
-    }
-
-    authData.value = null;
-  } catch (err) {
-    authData.value = null;
-    error.value =
-      err instanceof Error ? err.message : "Failed to restore the saved session";
-  }
-};
-
-const loadInstances = async () => {
-  try {
-    isLoadingInstances.value = true;
-    const response = await fetch("/api/instances");
-    const data = (await response.json()) as {
-      success: boolean;
-      instances?: LauncherInstance[];
-      error?: string;
-    };
-
-    if (!data.success) {
-      error.value = data.error || "Failed to load instances";
-      return;
-    }
-
-    instances.value = data.instances ?? [];
-    if (
-      selectedInstanceName.value &&
-      instances.value.some((instance) => instance.name === selectedInstanceName.value)
-    ) {
-      return;
-    }
-
-    selectedInstanceName.value = instances.value[0]?.name ?? "";
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "Failed to load instances";
-  } finally {
-    isLoadingInstances.value = false;
-  }
-};
-
-const loadVersions = async () => {
-  try {
-    isLoadingVersions.value = true;
-    const query = new URLSearchParams({
-      includeSnapshots: String(includeSnapshots.value),
-      includeBetas: String(includeBetas.value),
-      includeAlphas: String(includeAlphas.value),
-    });
-
-    const response = await fetch(`/api/instances/versions?${query.toString()}`);
-    const data = (await response.json()) as {
-      success: boolean;
-      versions?: AvailableVersion[];
-      error?: string;
-    };
-
-    if (!data.success) {
-      error.value = data.error || "Failed to load versions";
-      return;
-    }
-
-    availableVersions.value = data.versions ?? [];
-    if (
-      selectedVersionId.value &&
-      availableVersions.value.some((version) => version.id === selectedVersionId.value)
-    ) {
-      return;
-    }
-
-    selectedVersionId.value = availableVersions.value[0]?.id ?? "";
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "Failed to load versions";
-  } finally {
-    isLoadingVersions.value = false;
-  }
-};
-
-const pollAuthStatus = async () => {
-  if (!authState.value) {
-    return;
-  }
-
-  try {
-    const response = await fetch(
-      `/api/auth/status?state=${encodeURIComponent(authState.value)}`,
-    );
-    const data = (await response.json()) as {
-      success: boolean;
-      status: string;
-      uuid?: string;
-      username?: string;
-      error?: string;
-    };
-
-    if (data.status === "pending") {
-      if (authPopup?.closed) {
-        authWindowWasClosed.value = true;
-
-        if (Date.now() - authStartedAt > 10_000) {
-          failAuthentication(
-            "The login window was closed before the Microsoft sign-in finished.",
-          );
-        }
-      }
-
-      return;
-    }
-
-    if (data.status === "success" && data.uuid && data.username) {
-      completeAuthentication({ uuid: data.uuid, username: data.username });
-      return;
-    }
-
-    failAuthentication(data.error || "Authentication failed", true);
-  } catch (err) {
-    failAuthentication(
-      err instanceof Error ? err.message : "Failed to check authentication status",
-      true,
-    );
-  }
-};
-
-const startAuthPolling = () => {
-  stopAuthPolling();
-  authStartedAt = Date.now();
-  authStatusInterval = window.setInterval(() => {
-    void pollAuthStatus();
-  }, 1000);
-  void pollAuthStatus();
-};
-
-const handleLogin = async () => {
-  try {
-    isAuthenticating.value = true;
-    error.value = null;
-    launcherMessage.value = null;
-    authWindowWasClosed.value = false;
-
-    const response = await fetch("/api/auth/login");
-    const data = (await response.json()) as {
-      success: boolean;
-      url?: string;
-      state?: string;
-      error?: string;
-    };
-
-    if (!data.success || !data.url || !data.state) {
-      error.value = data.error || "Authentication failed";
-      isAuthenticating.value = false;
-      return;
-    }
-
-    authUrl.value = data.url;
-    authState.value = data.state;
-
-    authPopup = window.open(
-      authUrl.value,
-      "Microsoft Login",
-      "popup=yes,width=520,height=760",
-    );
-
-    if (!authPopup) {
-      failAuthentication(
-        "The login window could not be opened. Please allow popups and try again.",
-      );
-      return;
-    }
-
-    authPopup.focus();
-    startAuthPolling();
-  } catch (err) {
-    failAuthentication(err instanceof Error ? err.message : "Unknown error", true);
-  }
-};
-
-const handleCreateInstance = async () => {
-  if (!newInstanceName.value.trim()) {
-    error.value = "Please enter an instance name";
-    return;
-  }
-
-  if (!selectedVersionId.value) {
-    error.value = "Please choose a Minecraft version";
-    return;
-  }
-
-  try {
-    isCreatingInstance.value = true;
-    error.value = null;
-    launcherMessage.value = null;
-
-    const response = await fetch("/api/instances", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: newInstanceName.value.trim(),
-        versionId: selectedVersionId.value,
-      }),
-    });
-
-    const data = (await response.json()) as {
-      success: boolean;
-      instance?: LauncherInstance;
-      error?: string;
-    };
-
-    if (!data.success || !data.instance) {
-      error.value = data.error || "Failed to create instance";
-      return;
-    }
-
-    launcherMessage.value = `Instance ${data.instance.name} created successfully.`;
-    newInstanceName.value = "";
-    await loadInstances();
-    selectedInstanceName.value = data.instance.name;
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "Failed to create instance";
-  } finally {
-    isCreatingInstance.value = false;
-  }
-};
-
-const handleLaunch = async () => {
-  if (!authData.value || !selectedInstance.value) {
-    return;
-  }
-
-  try {
-    isLaunching.value = true;
-    error.value = null;
-    launcherMessage.value = null;
-
-    const response = await fetch(
-      `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/launch`,
-      {
-        method: "POST",
-      },
-    );
-    const data = (await response.json()) as {
-      success: boolean;
-      instanceName?: string;
-      version?: string;
-      pid?: number;
-      logFile?: string;
-      javaMajorVersion?: number;
-      javaExecutable?: string;
-      error?: string;
-    };
-
-    if (!data.success) {
-      error.value = data.error || "Minecraft could not be launched";
-      return;
-    }
-
-    launcherMessage.value = `Instance ${data.instanceName ?? selectedInstance.value.name} started with ${data.version ?? selectedInstance.value.versionId}${data.javaMajorVersion ? ` on Java ${data.javaMajorVersion}` : ""}${data.pid ? ` (PID ${data.pid})` : ""}.`;
-    await loadInstances();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "Minecraft could not be launched";
-  } finally {
-    isLaunching.value = false;
-  }
-};
-
-const handleStop = async () => {
-  if (!selectedInstance.value) {
-    return;
-  }
-
-  try {
-    isLaunching.value = true;
-    error.value = null;
-    launcherMessage.value = null;
-
-    const response = await fetch(
-      `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/stop`,
-      {
-        method: "POST",
-      },
-    );
-    const data = (await response.json()) as {
-      success: boolean;
-      instanceName?: string;
-      stopped?: boolean;
-      error?: string;
-    };
-
-    if (!data.success) {
-      error.value = data.error || "The instance could not be stopped";
-      return;
-    }
-
-    launcherMessage.value = `Instance ${data.instanceName ?? selectedInstance.value.name} stopped successfully.`;
-    await loadInstances();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "The instance could not be stopped";
-  } finally {
-    isLaunching.value = false;
-  }
-};
-
-const handleLogout = async () => {
-  try {
-    await fetch("/api/auth/logout", { method: "POST" });
-  } catch {
-    // ignore logout transport errors and clear the local UI state anyway
-  }
-
-  authData.value = null;
-  error.value = null;
-  launcherMessage.value = null;
-};
-
-watch([includeSnapshots, includeBetas, includeAlphas], () => {
-  void loadVersions();
-});
-
+import { onMounted, onBeforeUnmount } from 'vue';
+import { useLauncher } from '@/composables/useLauncher';
+import AuroraBackground from '@/components/AuroraBackground.vue';
+import TopBar from '@/components/TopBar.vue';
+import StatusBar from '@/components/StatusBar.vue';
+import CreateProfileModal from '@/components/CreateProfileModal.vue';
+import HomeTab from '@/components/tabs/HomeTab.vue';
+import ProfilesTab from '@/components/tabs/ProfilesTab.vue';
+import SkinsTab from '@/components/tabs/SkinsTab.vue';
+import DiscoverTab from '@/components/tabs/DiscoverTab.vue';
+import SettingsTab from '@/components/tabs/SettingsTab.vue';
+const { init, cleanup } = useLauncher();
 onMounted(() => {
-  void loadSession();
-  void loadInstances();
-  void loadVersions();
-  instanceRefreshInterval = window.setInterval(() => {
-    void loadInstances();
-  }, 3000);
+  init();
 });
-
 onBeforeUnmount(() => {
-  resetAuthFlow(true);
-  stopInstanceRefresh();
+  cleanup();
 });
-
 </script>
-
 <template>
-  <div class="relative h-dvh min-h-0 w-full overflow-hidden bg-[#050b16] text-slate-100">
-    <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
-      <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.16),transparent_28%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_22%),linear-gradient(180deg,#07111f_0%,#040914_58%,#02060d_100%)]" />
-      <div class="absolute -left-24 top-10 h-72 w-72 rounded-full bg-sky-400/10 blur-3xl" />
-      <div class="absolute right-[-5%] top-[-5%] h-96 w-96 rounded-full bg-blue-500/8 blur-3xl" />
-    </div>
-
-    <div class="relative z-10 h-full w-full">
-      <div class="launcher-shell launcher-shell-full rounded-none">
-        <div class="grid h-full min-h-0 lg:grid-cols-[104px_minmax(0,1fr)]">
-          <aside class="border-b border-sky-300/14 bg-[#27457c]/92 lg:border-r lg:border-b-0">
-            <div class="flex items-center justify-between gap-4 p-4 lg:h-full lg:flex-col lg:items-center lg:justify-between lg:px-3 lg:py-5">
-              <div class="flex items-center gap-3 lg:flex-col">
-                <div class="flex h-20 w-20 items-center justify-center rounded-[26px] border border-sky-300/24 bg-white/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                  <svg viewBox="0 0 24 24" class="h-9 w-9 fill-white" aria-hidden="true">
-                    <path d="M13.2 1 5 13.2h5.1L8.8 23 19 9.8h-5.1L13.2 1Z" />
-                  </svg>
-                </div>
-
-                <div class="flex flex-wrap gap-3 lg:flex-col" role="tablist" aria-label="Launcher navigation">
-                  <button
-                    v-for="tab in homeTabs"
-                    :key="tab.id"
-                    :id="`tab-${tab.id}`"
-                    type="button"
-                    role="tab"
-                    :aria-selected="activeTab === tab.id"
-                    :aria-controls="`panel-${tab.id}`"
-                    class="launcher-rail-button"
-                    :class="activeTab === tab.id ? 'launcher-rail-button-active' : ''"
-                    @click="activeTab = tab.id"
-                  >
-                    <svg v-if="tab.id === 'play'" viewBox="0 0 24 24" class="h-6 w-6 fill-current" aria-hidden="true">
-                      <path d="M8 5.14v14l11-7-11-7Z" />
-                    </svg>
-                    <svg v-else-if="tab.id === 'library'" viewBox="0 0 24 24" class="h-6 w-6 fill-current" aria-hidden="true">
-                      <path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z" />
-                    </svg>
-                    <svg v-else-if="tab.id === 'create'" viewBox="0 0 24 24" class="h-6 w-6 fill-current" aria-hidden="true">
-                      <path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4Z" />
-                    </svg>
-                    <svg v-else viewBox="0 0 24 24" class="h-6 w-6 fill-current" aria-hidden="true">
-                      <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div class="hidden lg:block">
-                <div class="rounded-2xl border border-white/10 bg-white/6 px-3 py-4 text-center">
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-100/70">Live</p>
-                  <p class="mt-2 text-xl font-semibold text-white">{{ runningInstancesCount }}</p>
-                  <p class="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-300">running</p>
-                </div>
-              </div>
-            </div>
-          </aside>
-
-          <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-            <header class="border-b border-sky-300/14 bg-slate-950/70 backdrop-blur-sm">
-              <div class="flex flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-6">
-                <div>
-                  <p class="font-mono text-2xl font-bold uppercase tracking-[0.16em] text-white">TheLauncherProject</p>
-                  <p class="font-mono text-xs uppercase tracking-[0.18em] text-sky-100/55">
-                    {{ activeTabMeta.label }} · focused launcher workflow
-                  </p>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                  <button type="button" class="launcher-toolbar-button" @click="activeTab = 'library'">
-                    <svg viewBox="0 0 24 24" class="h-5 w-5 fill-current" aria-hidden="true">
-                      <path d="M4 5h16v3H4V5Zm2 5h12v9H6v-9Z" />
-                    </svg>
-                    <span class="font-mono uppercase tracking-[0.12em]">
-                      {{ selectedInstance ? selectedInstance.name : 'NO INSTANCE' }}
-                    </span>
-                  </button>
-
-                  <button type="button" class="launcher-toolbar-button" @click="activeTab = 'account'">
-                    <span class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-sky-300/20 bg-sky-200/10">
-                      <img :src="heroAvatarUrl" alt="Account avatar" class="h-full w-full object-cover" />
-                    </span>
-                    <span class="font-mono uppercase tracking-[0.12em]">
-                      {{ authData ? authData.username : 'SIGN IN' }}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </header>
-
-            <div class="min-h-0 overflow-y-auto p-3 lg:p-4">
-              <div class="mx-auto flex w-full max-w-6xl flex-col gap-4">
-                <section v-if="error || launcherMessage || isAuthenticating" class="launcher-panel p-4 sm:p-5">
-                  <div class="space-y-3">
-                    <div v-if="error" class="rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-50">
-                      <p class="font-semibold uppercase tracking-[0.12em]">Error</p>
-                      <p class="mt-2 text-rose-100/90">{{ error }}</p>
-                    </div>
-
-                    <div v-if="launcherMessage" class="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50">
-                      <p class="font-semibold uppercase tracking-[0.12em]">Launcher Update</p>
-                      <p class="mt-2 text-emerald-100/90">{{ launcherMessage }}</p>
-                    </div>
-
-                    <div v-if="isAuthenticating" class="rounded-2xl border border-sky-300/15 bg-sky-400/8 px-4 py-3 text-sm text-slate-200">
-                      <p class="font-semibold uppercase tracking-[0.12em] text-white">Authentication in progress</p>
-                      <p class="mt-2">Finish the Microsoft sign-in in the popup window. This launcher checks the session automatically.</p>
-                      <p v-if="authWindowWasClosed" class="mt-2 text-amber-200">The popup was closed. Waiting briefly for a completed callback.</p>
-                      <a class="mt-3 block break-all text-sky-200 underline decoration-sky-300/30 underline-offset-4 hover:text-white" :href="authUrl" target="_blank" rel="noopener noreferrer">{{ authUrl }}</a>
-                    </div>
-                  </div>
-                </section>
-
-                <section v-if="activeTab === 'play'" class="launcher-panel launcher-hero-stage relative isolate overflow-hidden">
-                  <div aria-hidden="true" class="pointer-events-none absolute inset-0">
-                    <div class="absolute inset-0 bg-[linear-gradient(to_right,rgba(59,130,246,0.16)_1px,transparent_1px),linear-gradient(to_bottom,rgba(59,130,246,0.16)_1px,transparent_1px)] bg-size-[120px_74px] opacity-60" />
-                    <div class="absolute inset-x-0 bottom-0 h-56 bg-[linear-gradient(to_top,rgba(37,99,235,0.26),transparent)]" />
-                    <div class="absolute inset-x-0 bottom-[-6%] h-72 bg-[linear-gradient(to_right,rgba(59,130,246,0.22)_1px,transparent_1px),linear-gradient(to_bottom,rgba(59,130,246,0.22)_1px,transparent_1px)] bg-size-[84px_52px] opacity-75" />
-                    <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_26%,rgba(4,9,20,0.68)_78%)]" />
-                  </div>
-
-                  <div class="launcher-hero-stage relative z-10 flex flex-col px-4 py-5 sm:px-6 sm:py-6">
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="rounded-2xl border border-sky-300/20 bg-[#1c315b]/90 px-5 py-4 shadow-[0_16px_28px_rgba(30,64,175,0.18)]">
-                        <p class="font-mono text-lg font-semibold uppercase tracking-[0.14em] text-white">{{ activeTabMeta.label }}</p>
-                      </div>
-
-                      <div class="rounded-2xl border border-sky-300/12 bg-slate-950/40 px-4 py-3 text-right">
-                        <p class="font-mono text-[11px] uppercase tracking-[0.2em] text-slate-400">Session state</p>
-                        <p class="mt-1 text-sm font-semibold text-white">
-                          {{ selectedInstance?.running ? 'RUNNING' : authData ? 'READY' : 'OFFLINE' }}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div class="flex flex-1 flex-col items-center justify-center pb-24 pt-8 text-center xl:pb-28 xl:pt-10">
-                      <p class="font-mono text-4xl font-bold uppercase tracking-[0.22em] text-white sm:text-5xl">
-                        {{ selectedInstance?.name ?? authData?.username ?? 'PLAY' }}
-                      </p>
-                      <p class="mt-3 max-w-xl text-sm uppercase tracking-[0.18em] text-sky-100/70 sm:text-base">
-                        {{
-                          selectedInstance
-                            ? `${selectedInstance.versionId} · ${formatVersionType(selectedInstance.versionType)} · Java ${selectedInstance.javaMajorVersion}`
-                            : authData
-                              ? 'choose an instance in the library or create a new profile'
-                              : 'connect Microsoft and prepare your launcher session'
-                        }}
-                      </p>
-
-                      <div class="relative mt-6">
-                        <div class="absolute inset-x-8 bottom-2 h-10 rounded-full bg-blue-500/25 blur-2xl" />
-                        <img :src="heroAvatarUrl" alt="Minecraft avatar render" class="launcher-avatar relative z-10 object-contain drop-shadow-[0_24px_45px_rgba(0,0,0,0.55)]" />
-                      </div>
-                    </div>
-
-                    <div class="absolute inset-x-0 bottom-0 px-4 pb-4 sm:px-6 sm:pb-6">
-                      <div class="mx-auto max-w-xl rounded-[26px] border border-sky-300/25 bg-[#1a2f57]/94 shadow-[0_18px_42px_rgba(30,64,175,0.28)]">
-                        <div class="grid grid-cols-[minmax(0,1fr)_88px]">
-                          <button
-                            v-if="selectedInstance?.running"
-                            type="button"
-                            @click="handleStop"
-                            :disabled="isLaunching"
-                            class="flex min-h-24 flex-col items-center justify-center border-r border-sky-300/20 px-4 text-center transition hover:bg-red-500/12 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <span class="font-mono text-4xl font-bold uppercase tracking-[0.12em] text-white">{{ isLaunching ? 'STOPPING' : 'STOP' }}</span>
-                            <span class="mt-2 text-sm uppercase tracking-[0.14em] text-slate-300">{{ selectedInstance.name }} {{ selectedInstance.pid ? `· PID ${selectedInstance.pid}` : '' }}</span>
-                          </button>
-
-                          <button
-                            v-else-if="authData"
-                            type="button"
-                            @click="handleLaunch"
-                            :disabled="isLaunching || !selectedInstance"
-                            class="flex min-h-24 flex-col items-center justify-center border-r border-sky-300/20 px-4 text-center transition hover:bg-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <span class="font-mono text-4xl font-bold uppercase tracking-[0.12em] text-white">{{ isLaunching ? 'LAUNCHING' : 'LAUNCH' }}</span>
-                            <span class="mt-2 text-sm uppercase tracking-[0.14em] text-slate-300">{{ selectedInstance ? selectedInstance.versionId : 'select instance first' }}</span>
-                          </button>
-
-                          <button
-                            v-else
-                            type="button"
-                            @click="handleLogin"
-                            :disabled="isAuthenticating"
-                            class="flex min-h-24 flex-col items-center justify-center border-r border-sky-300/20 px-4 text-center transition hover:bg-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <span class="font-mono text-3xl font-bold uppercase tracking-[0.12em] text-white sm:text-4xl">{{ isAuthenticating ? 'WAIT' : 'LOGIN' }}</span>
-                            <span class="mt-2 text-sm uppercase tracking-[0.14em] text-slate-300">Microsoft account required</span>
-                          </button>
-
-                          <button type="button" class="flex items-center justify-center text-white transition hover:bg-sky-400/10" @click="activeTab = selectedInstance ? 'library' : authData ? 'create' : 'account'">
-                            <svg viewBox="0 0 24 24" class="h-7 w-7 fill-current" aria-hidden="true">
-                              <path d="M7 9.5 12 15l5-5.5H7Z" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section v-if="activeTab === 'play'" id="panel-play" role="tabpanel" aria-labelledby="tab-play" class="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
-                  <div class="launcher-panel p-5 sm:p-6">
-                    <div class="mb-5 flex items-center justify-between gap-3">
-                      <div>
-                        <p class="font-mono text-xs uppercase tracking-[0.2em] text-sky-100/70">Play</p>
-                        <h2 class="mt-2 font-mono text-xl font-bold uppercase tracking-[0.12em] text-white">Launch readiness</h2>
-                      </div>
-                      <span class="rounded-full border border-sky-300/15 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-300">{{ runningInstancesCount }} active</span>
-                    </div>
-
-                    <div class="grid gap-3 md:grid-cols-3">
-                      <div class="stat-tile">
-                        <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Account</p>
-                        <p class="mt-2 text-lg font-semibold text-white">{{ authData ? authData.username : 'Offline' }}</p>
-                        <p class="mt-1 text-sm text-slate-300">{{ authData ? 'Launch permissions ready' : 'Login required' }}</p>
-                      </div>
-                      <div class="stat-tile">
-                        <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Selected</p>
-                        <p class="mt-2 text-lg font-semibold text-white">{{ selectedInstance?.name ?? 'No instance' }}</p>
-                        <p class="mt-1 text-sm text-slate-300">{{ selectedInstance?.versionId ?? 'Choose one in library' }}</p>
-                      </div>
-                      <div class="stat-tile">
-                        <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Status</p>
-                        <p class="mt-2 text-lg font-semibold text-white">{{ selectedInstance?.running ? 'Running' : authData ? 'Ready' : 'Offline' }}</p>
-                        <p class="mt-1 text-sm text-slate-300">{{ selectedInstance?.running ? 'Stop the current instance' : 'Use the primary action above' }}</p>
-                      </div>
-                    </div>
-
-                    <div class="mt-5 grid gap-3 sm:grid-cols-3">
-                      <button type="button" class="soft-button-muted w-full" @click="activeTab = 'library'">Open library</button>
-                      <button type="button" class="soft-button-muted w-full" @click="activeTab = 'create'">Create instance</button>
-                      <button type="button" class="soft-button-muted w-full" @click="activeTab = 'account'">Account panel</button>
-                    </div>
-                  </div>
-
-                  <div class="launcher-panel p-5 sm:p-6">
-                    <div class="mb-4">
-                      <p class="font-mono text-xs uppercase tracking-[0.2em] text-sky-100/70">Current context</p>
-                      <h2 class="mt-2 font-mono text-xl font-bold uppercase tracking-[0.12em] text-white">Selected profile</h2>
-                    </div>
-
-                    <div v-if="selectedInstance" class="space-y-3">
-                      <div class="detail-row"><p class="detail-key">Profile</p><p class="detail-value">{{ selectedInstance.name }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Version</p><p class="detail-value">{{ selectedInstance.versionId }} · {{ formatVersionType(selectedInstance.versionType) }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Java</p><p class="detail-value">Java {{ selectedInstance.javaMajorVersion }} · {{ formatJavaComponent(selectedInstance.javaComponent) }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Last played</p><p class="detail-value">{{ formatDate(selectedInstance.lastPlayedAt) }}</p></div>
-                    </div>
-
-                    <div v-else-if="!instances.length && !isLoadingInstances" class="rounded-3xl border border-dashed border-white/12 bg-white/4 p-4 text-sm text-slate-300">
-                      No instances yet. Open create to build your first launcher profile.
-                    </div>
-
-                    <div v-else class="space-y-3">
-                      <p class="text-sm text-slate-300">No instance selected yet. Choose one in the library to launch Minecraft from Play.</p>
-                      <button v-for="instance in instances.slice(0, 3)" :key="instance.slug" type="button" @click="selectedInstanceName = instance.name" class="w-full rounded-2xl border px-4 py-3 text-left transition" :class="selectedInstanceName === instance.name ? 'border-sky-300/35 bg-sky-300/10' : 'border-white/10 bg-white/5 hover:border-sky-200/20 hover:bg-white/8'">
-                        <div class="flex items-center justify-between gap-3">
-                          <div class="min-w-0">
-                            <p class="truncate font-semibold text-white">{{ instance.name }}</p>
-                            <p class="mt-1 text-sm text-slate-300">{{ instance.versionId }} · {{ formatVersionType(instance.versionType) }}</p>
-                          </div>
-                          <span class="text-xs uppercase tracking-[0.14em]" :class="instance.running ? 'text-emerald-300' : 'text-slate-400'">{{ instance.running ? 'Running' : 'Stopped' }}</span>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </section>
-
-                <section v-else-if="activeTab === 'library'" id="panel-library" role="tabpanel" aria-labelledby="tab-library" class="grid gap-4 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
-                  <div class="launcher-panel p-5 sm:p-6">
-                    <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p class="font-mono text-xs uppercase tracking-[0.2em] text-sky-100/70">Library</p>
-                        <h2 class="mt-2 font-mono text-xl font-bold uppercase tracking-[0.12em] text-white">Instance list</h2>
-                        <p class="mt-2 text-sm text-slate-300">Select the profile you want to inspect or launch.</p>
-                      </div>
-                      <span class="rounded-full border border-sky-300/15 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-300">{{ isLoadingInstances ? 'Refreshing' : `${instances.length} profiles` }}</span>
-                    </div>
-
-                    <div v-if="!instances.length && !isLoadingInstances" class="rounded-3xl border border-dashed border-white/12 bg-white/4 p-5 text-sm text-slate-300">
-                      No instances yet. Switch to create and add your first Minecraft profile.
-                    </div>
-
-                    <div v-else class="space-y-3">
-                      <button v-for="instance in instances" :key="instance.slug" type="button" @click="selectedInstanceName = instance.name" class="group w-full rounded-3xl border px-4 py-4 text-left transition duration-200" :class="selectedInstanceName === instance.name ? 'border-sky-300/35 bg-sky-300/10 shadow-[0_18px_40px_rgba(56,189,248,0.14)]' : 'border-white/10 bg-white/5 hover:border-sky-200/20 hover:bg-white/8'">
-                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div class="space-y-1">
-                            <div class="flex flex-wrap items-center gap-2">
-                              <p class="text-lg font-semibold text-white">{{ instance.name }}</p>
-                              <span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="instance.running ? 'bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/25' : 'bg-white/8 text-slate-300 ring-1 ring-white/10'">{{ instance.running ? 'Running' : 'Stopped' }}</span>
-                            </div>
-                            <p class="text-sm text-slate-300">{{ instance.versionId }} • {{ formatVersionType(instance.versionType) }}</p>
-                          </div>
-                          <p class="text-sm text-slate-400">{{ formatDate(instance.lastPlayedAt) }}</p>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="launcher-panel p-5 sm:p-6">
-                    <div class="mb-5">
-                      <p class="font-mono text-xs uppercase tracking-[0.2em] text-sky-100/70">Details</p>
-                      <h2 class="mt-2 font-mono text-xl font-bold uppercase tracking-[0.12em] text-white">Selected instance</h2>
-                    </div>
-
-                    <div v-if="selectedInstance" class="space-y-3">
-                      <div class="detail-row"><p class="detail-key">Name</p><p class="detail-value">{{ selectedInstance.name }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Version</p><p class="detail-value">{{ selectedInstance.versionId }} ({{ formatVersionType(selectedInstance.versionType) }})</p></div>
-                      <div class="detail-row"><p class="detail-key">Java</p><p class="detail-value">Java {{ selectedInstance.javaMajorVersion }} · {{ formatJavaComponent(selectedInstance.javaComponent) }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Created</p><p class="detail-value">{{ formatDate(selectedInstance.createdAt) }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Last played</p><p class="detail-value">{{ formatDate(selectedInstance.lastPlayedAt) }}</p></div>
-                      <div v-if="selectedInstance.running" class="detail-row"><p class="detail-key">Process</p><p class="detail-value">PID {{ selectedInstance.pid ?? '?' }}</p></div>
-                      <div class="mt-5 grid gap-3 sm:grid-cols-2">
-                        <button type="button" class="soft-button-muted w-full" @click="activeTab = 'play'">Open in play</button>
-                        <button v-if="selectedInstance.running" type="button" class="soft-button-danger w-full" :disabled="isLaunching" @click="handleStop">{{ isLaunching ? 'Stopping...' : 'Stop instance' }}</button>
-                      </div>
-                    </div>
-
-                    <div v-else class="rounded-3xl border border-dashed border-white/12 bg-white/4 p-5 text-sm text-slate-300">
-                      Choose a profile from the list to inspect its version, Java runtime and status.
-                    </div>
-                  </div>
-                </section>
-
-                <section v-else-if="activeTab === 'create'" id="panel-create" role="tabpanel" aria-labelledby="tab-create" class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-                  <div class="launcher-panel p-5 sm:p-6">
-                    <div class="mb-5">
-                      <p class="font-mono text-xs uppercase tracking-[0.2em] text-sky-100/70">Create</p>
-                      <h2 class="mt-2 font-mono text-xl font-bold uppercase tracking-[0.12em] text-white">Build new instance</h2>
-                      <p class="mt-2 text-sm text-slate-300">Set a name, choose a version and store a new launcher profile.</p>
-                    </div>
-
-                    <div class="grid gap-4">
-                      <div class="field-shell">
-                        <label class="field-label" for="instance-name">Instance name</label>
-                        <input id="instance-name" v-model="newInstanceName" type="text" placeholder="My survival world" class="field-input" />
-                      </div>
-
-                      <div class="field-shell">
-                        <p class="field-label">Version filters</p>
-                        <div class="flex flex-wrap gap-3">
-                          <label class="toggle-pill"><input v-model="includeSnapshots" type="checkbox" class="h-4 w-4 rounded border-white/10 bg-slate-950/50 text-sky-300 focus:ring-sky-300/30" /><span>Snapshots</span></label>
-                          <label class="toggle-pill"><input v-model="includeBetas" type="checkbox" class="h-4 w-4 rounded border-white/10 bg-slate-950/50 text-sky-300 focus:ring-sky-300/30" /><span>Betas</span></label>
-                          <label class="toggle-pill"><input v-model="includeAlphas" type="checkbox" class="h-4 w-4 rounded border-white/10 bg-slate-950/50 text-sky-300 focus:ring-sky-300/30" /><span>Alphas</span></label>
-                        </div>
-                      </div>
-
-                      <div class="field-shell">
-                        <label class="field-label" for="version-select">Minecraft version</label>
-                        <select id="version-select" v-model="selectedVersionId" class="field-input" :disabled="isLoadingVersions || !availableVersions.length">
-                          <option disabled value="">Select a version</option>
-                          <option v-for="version in availableVersions" :key="version.id" :value="version.id">{{ version.id }} — {{ formatVersionType(version.type) }} — {{ formatReleaseTime(version.releaseTime) }}</option>
-                        </select>
-                        <p class="mt-3 text-xs text-slate-400">{{ isLoadingVersions ? 'Loading versions...' : `${availableVersions.length} versions available` }}</p>
-                      </div>
-
-                      <button type="button" @click="handleCreateInstance" :disabled="isCreatingInstance || !selectedVersionId" class="soft-button w-full sm:w-auto">{{ isCreatingInstance ? 'Creating instance...' : 'Create Instance' }}</button>
-                    </div>
-                  </div>
-
-                  <div class="launcher-panel p-5 sm:p-6">
-                    <p class="font-mono text-xs uppercase tracking-[0.2em] text-sky-100/70">Selection</p>
-                    <h2 class="mt-2 font-mono text-xl font-bold uppercase tracking-[0.12em] text-white">Version preview</h2>
-
-                    <div v-if="selectedVersion" class="mt-5 space-y-3">
-                      <div class="detail-row"><p class="detail-key">Version</p><p class="detail-value">{{ selectedVersion.id }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Channel</p><p class="detail-value">{{ formatVersionType(selectedVersion.type) }}</p></div>
-                      <div class="detail-row"><p class="detail-key">Released</p><p class="detail-value">{{ formatReleaseTime(selectedVersion.releaseTime) }}</p></div>
-                    </div>
-
-                    <div v-else class="mt-5 rounded-3xl border border-dashed border-white/12 bg-white/4 p-4 text-sm text-slate-300">
-                      Pick a version from the list to preview the release information here.
-                    </div>
-                  </div>
-                </section>
-
-                <section v-else id="panel-account" role="tabpanel" aria-labelledby="tab-account" class="launcher-panel p-5 sm:p-6">
-                  <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <p class="font-mono text-xs uppercase tracking-[0.2em] text-sky-100/70">Account</p>
-                      <h2 class="mt-2 font-mono text-xl font-bold uppercase tracking-[0.12em] text-white">Microsoft session</h2>
-                      <p class="mt-2 text-sm text-slate-300">Connect, inspect and manage the current authenticated launcher session.</p>
-                    </div>
-                  </div>
-
-                  <div v-if="authData" class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-                    <div class="space-y-3">
-                      <div class="detail-row"><p class="detail-key">Username</p><p class="detail-value">{{ authData.username }}</p></div>
-                      <div class="detail-row"><div class="min-w-0"><p class="detail-key">UUID</p><p class="mt-1 break-all font-mono text-xs text-slate-200">{{ authData.uuid }}</p></div></div>
-                    </div>
-
-                    <div class="flex flex-col gap-3">
-                      <button type="button" class="soft-button-muted w-full" @click="activeTab = 'play'">Back to play</button>
-                      <button type="button" class="soft-button-muted w-full" @click="handleLogout">Logout</button>
-                    </div>
-                  </div>
-
-                  <div v-else class="space-y-4">
-                    <div class="rounded-3xl border border-dashed border-white/12 bg-white/4 p-4 text-sm leading-6 text-slate-300">Sign in with Microsoft to enable launching and keep your player session ready across restarts.</div>
-                    <button type="button" @click="handleLogin" :disabled="isAuthenticating" class="soft-button w-full sm:w-auto">{{ isAuthenticating ? 'Authenticating...' : 'Login with Microsoft' }}</button>
-                  </div>
-
-                  <div v-if="isAuthenticating" class="mt-5 rounded-3xl border border-white/10 bg-slate-950/35 p-4 text-sm text-slate-300">
-                    <p class="font-semibold text-white">Authentication in progress</p>
-                    <p class="mt-2">Finish the Microsoft sign-in in the popup window.</p>
-                    <p v-if="authWindowWasClosed" class="mt-2 text-amber-200">The popup was closed; the launcher is still checking the status briefly.</p>
-                    <a class="mt-3 block break-all text-sky-200 underline decoration-sky-300/30 underline-offset-4 hover:text-white" :href="authUrl" target="_blank" rel="noopener noreferrer">{{ authUrl }}</a>
-                  </div>
-                </section>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+  <AuroraBackground />
+  <TopBar />
+  <div class="body">
+    <HomeTab />
+    <ProfilesTab />
+    <SkinsTab />
+    <DiscoverTab />
+    <SettingsTab />
   </div>
+  <StatusBar />
+  <CreateProfileModal />
 </template>
+<style>
+/* ...existing css... */
+:root {
+  --primary: #00b2ff; --secondary: #6c63ff; --violet: #8b5cf6; --accent: #00ffcc;
+  --dark: #0a1525; --darker: #050d1a; --darkest: #030912;
+  --border: rgba(255,255,255,.07);
+  --text-strong: rgba(255,255,255,.96); --text-main: rgba(255,255,255,.84);
+  --text-muted: rgba(255,255,255,.6); --text-faint: rgba(255,255,255,.42);
+  --panel-bg: rgba(8,18,34,.78); --panel-bg-strong: rgba(5,13,26,.88);
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--darkest); color: var(--text-strong); font-family: "Space Grotesk", sans-serif; line-height: 1.45; height: 100vh; width: 100vw; overflow: hidden; display: flex; flex-direction: column; user-select: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; }
+:focus-visible { outline: 2px solid rgba(0,178,255,.85); outline-offset: 2px; }
+/* TOPBAR */
+.topbar { height: 52px; min-height: 52px; background: rgba(3,9,18,.95); border-bottom: 1px solid rgba(255,255,255,.06); backdrop-filter: blur(24px); display: flex; align-items: center; padding: 0 16px; position: relative; z-index: 60; flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: 9px; margin-right: 28px; }
+.brand-logo { width: 30px; height: 30px; background: linear-gradient(135deg,var(--primary),var(--secondary)); border-radius: 7px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px rgba(0,178,255,.4); flex-shrink: 0; }
+.brand-name { font-size: 13px; font-weight: 700; letter-spacing: .11em; white-space: nowrap; }
+.brand-name b { color: var(--primary); }
+.top-nav { display: flex; gap: .5rem; flex: 1; }
+.tnav { display: flex; align-items: center; gap: 7px; padding: .5rem 1rem; border-radius: 7px; font-size: 12px; font-weight: 600; letter-spacing: .08em; cursor: pointer; transition: all .2s; color: var(--text-muted); border: 1px solid transparent; background: transparent; }
+.tnav:hover { color: var(--text-strong); background: rgba(255,255,255,.05); }
+.tnav.on { color: #fff; background: rgba(0,178,255,.1); border-color: rgba(0,178,255,.2); }
+.tnav.on svg { color: var(--primary); }
+.tb-space { flex: 1; }
+.tb-right { display: flex; align-items: center; gap: 8px; }
+.notif-btn { width: 32px; height: 32px; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-faint); transition: all .2s; position: relative; }
+.notif-btn:hover { background: rgba(255,255,255,.09); color: #fff; }
+.notif-dot { position: absolute; top: 7px; right: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 5px var(--primary); }
+.user-pill { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: 8px; padding: 5px 11px 5px 6px; cursor: pointer; transition: all .2s; }
+.user-pill:hover { background: rgba(255,255,255,.1); }
+.user-pill img { width: 24px; height: 24px; border-radius: 4px; image-rendering: pixelated; }
+.user-pill .un { font-size: 12px; font-weight: 600; letter-spacing: .07em; }
+.user-pill .uc { color: var(--text-faint); }
+.wc { display: flex; gap: 5px; margin-right: 10px; }
+.w { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; transition: filter .2s; }
+.w:hover { filter: brightness(1.3); }
+.wr { background: #ff5f57; } .wy { background: #febc2e; } .wg { background: #28c840; }
+/* BODY */
+.body { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; z-index: 10; }
+.view { display: none; flex: 1; overflow: hidden; }
+.view.on { display: flex; }
+/* HOME */
+.home { flex: 1; overflow: hidden; }
+.home-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 28px 36px 24px; position: relative; overflow: hidden; }
+.floor { position: absolute; bottom: 0; left: 0; width: 100%; height: 40%; pointer-events: none; z-index: 0; }
+.floor-fade { position: absolute; bottom: 0; left: 0; width: 100%; height: 56%; background: linear-gradient(to bottom,transparent,var(--darkest) 80%); pointer-events: none; z-index: 1; }
+.player-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; z-index: 5; }
+.pname { font-size: 24px; font-weight: 700; letter-spacing: .14em; margin-bottom: 20px; background: linear-gradient(90deg,var(--primary),var(--secondary),var(--violet),var(--primary)); background-size: 300% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: nameScroll 5s linear infinite; }
+@keyframes nameScroll { to { background-position: -300% 50%; } }
+.skin-wrap { position: relative; }
+.skin-halo { position: absolute; inset: -28%; background: radial-gradient(ellipse at center,rgba(0,178,255,.2) 0%,transparent 65%); animation: halo 4s ease-in-out infinite; }
+@keyframes halo { 0%,100% { opacity:.7; transform:scale(1); } 50% { opacity:1; transform:scale(1.08); } }
+.skin { height: 265px; object-fit: contain; position: relative; z-index: 2; filter: drop-shadow(0 16px 48px rgba(0,178,255,.32)); transition: transform .5s cubic-bezier(.34,1.56,.64,1); cursor: pointer; }
+.skin:hover { transform: scale(1.05) translateY(-8px); }
+.srv-label { margin-top: 9px; font-size: 10.5px; letter-spacing: .16em; color: var(--text-faint); }
+.stat-strip { display: flex; gap: 10px; margin-bottom: 16px; position: relative; z-index: 5; }
+.sc { background: var(--panel-bg); border: 1px solid rgba(255,255,255,.07); border-radius: 9px; padding: 9px 16px; text-align: center; backdrop-filter: blur(12px); cursor: default; transition: all .2s; }
+.sc:hover { border-color: rgba(0,178,255,.28); background: rgba(0,178,255,.07); }
+.sc-v { font-size: 17px; font-weight: 700; color: var(--primary); line-height: 1; }
+.sc-l { font-size: 10px; color: var(--text-faint); letter-spacing: .08em; margin-top: 3px; }
+.lbar { width: 100%; max-width: 660px; background: var(--panel-bg-strong); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; backdrop-filter: blur(20px); display: flex; align-items: center; padding: 12px 6px 12px 20px; position: relative; z-index: 5; gap: 6px; }
+.lbar-info { flex: 1; min-width: 0; }
+.lbar-name { font-size: 14px; font-weight: 700; letter-spacing: .06em; margin-bottom: 3px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lbar-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.lbar-meta span { display: flex; align-items: center; gap: 4px; }
+.launch-btn { display: flex; align-items: center; gap: 9px; background: linear-gradient(135deg,var(--primary) 0%,var(--secondary) 100%); border: none; border-radius: 9px; padding: 13px 28px; font-family: "Space Grotesk",sans-serif; font-size: 14px; font-weight: 700; letter-spacing: .12em; color: white; cursor: pointer; position: relative; overflow: hidden; box-shadow: 0 0 10px rgba(0,178,255,.3); transition: all .3s; white-space: nowrap; flex-shrink: 0; }
+.launch-btn::after { content: ""; position: absolute; top: 0; left: -100%; width: 55%; height: 100%; background: linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent); transform: skewX(-20deg); animation: shim 3s infinite; }
+@keyframes shim { 0% { left:-100%; } 100% { left:220%; } }
+.launch-btn:hover { transform: translateY(-2px); box-shadow: 0 0 20px rgba(0,178,255,.5); }
+.launch-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+.lgear { width: 44px; height: 44px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); border-radius: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-faint); transition: all .2s; flex-shrink: 0; }
+.lgear:hover { background: rgba(255,255,255,.1); color: #fff; }
+/* NEWS */
+.news-side { width: 320px; background: rgba(5,13,26,.62); border-left: 1px solid rgba(255,255,255,.05); backdrop-filter: blur(20px); display: flex; flex-direction: column; overflow: hidden; }
+.ns-hdr { padding: 16px 18px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,.05); }
+.ns-hdr h3 { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: var(--text-muted); }
+.news-scroll { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.news-scroll::-webkit-scrollbar { width: 3px; }
+.news-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 2px; }
+.nc { background: var(--panel-bg); border: 1px solid rgba(255,255,255,.06); border-radius: 10px; overflow: hidden; cursor: pointer; transition: all .25s; }
+.nc:hover { border-color: rgba(0,178,255,.28); transform: translateX(-3px); box-shadow: 4px 0 20px rgba(0,178,255,.1); }
+.nc-thumb { height: 110px; position: relative; overflow: hidden; }
+.nc-img { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 48px; transition: transform .4s; }
+.nc:hover .nc-img { transform: scale(1.06); }
+.nc-fade { position: absolute; inset: 0; background: linear-gradient(to bottom,transparent 30%,rgba(3,9,18,.9)); }
+.nc-badge { position: absolute; top: 7px; right: 7px; font-size: 9px; font-weight: 700; letter-spacing: .1em; padding: 2px 7px; border-radius: 4px; backdrop-filter: blur(8px); }
+.nb-u { background: rgba(0,178,255,.18); color: var(--primary); border: 1px solid rgba(0,178,255,.3); }
+.nb-s { background: rgba(139,92,246,.18); color: var(--violet); border: 1px solid rgba(139,92,246,.3); }
+.nb-e { background: rgba(0,255,204,.13); color: var(--accent); border: 1px solid rgba(0,255,204,.25); }
+.nb-p { background: rgba(251,191,36,.14); color: #fbb724; border: 1px solid rgba(251,191,36,.24); }
+.nc-body { padding: 10px 12px 11px; }
+.nc-body h4 { font-size: 13px; font-weight: 600; margin-bottom: 5px; line-height: 1.35; }
+.nc-body p { font-size: 11px; color: var(--text-muted); line-height: 1.55; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.nc-date { font-size: 10px; color: var(--text-faint); margin-top: 6px; }
+/* PROFILES */
+.profiles-view { flex: 1; flex-direction: column; overflow: hidden; }
+.ptool { padding: 16px 24px 0; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0; }
+.ptool-row { display: flex; align-items: center; gap: 10px; }
+.flex1 { flex: 1; }
+.ftabs { display: flex; gap: 5px; }
+.ft { padding: 5px 13px; border-radius: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .07em; cursor: pointer; transition: all .2s; border: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.03); color: var(--text-faint); }
+.ft.on { background: rgba(0,178,255,.12); border-color: rgba(0,178,255,.28); color: var(--primary); }
+.ft:hover:not(.on) { background: rgba(255,255,255,.07); color: rgba(255,255,255,.7); }
+.act-btn { display: flex; align-items: center; gap: 6px; border-radius: 7px; padding: 7px 14px; font-size: 11.5px; font-weight: 600; letter-spacing: .07em; cursor: pointer; transition: all .2s; font-family: "Space Grotesk",sans-serif; border: none; }
+.act-btn:disabled { opacity: .5; cursor: not-allowed; }
+.act-ghost { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09) !important; color: rgba(255,255,255,.45); }
+.act-ghost:hover { background: rgba(255,255,255,.09); }
+.act-prim { background: rgba(0,178,255,.12); border: 1px solid rgba(0,178,255,.25) !important; color: var(--primary); }
+.act-prim:hover:not(:disabled) { background: rgba(0,178,255,.2); box-shadow: 0 0 12px rgba(0,178,255,.2); }
+.pview-label { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: var(--text-faint); padding: 0 24px; flex-shrink: 0; margin-top: 4px; }
+.profiles-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(172px,1fr)); gap: 12px; overflow-y: auto; padding: 12px 24px 24px; flex: 1; }
+.profiles-grid::-webkit-scrollbar { width: 4px; }
+.profiles-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 2px; }
+.pcard { height: 12rem; background: var(--panel-bg); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; overflow: hidden; cursor: pointer; transition: all .25s; position: relative; }
+.pcard:hover { border-color: rgba(0,178,255,.3); transform: translateY(-4px); box-shadow: 0 12px 32px rgba(0,0,0,.4),0 0 24px rgba(0,178,255,.1); }
+.pcard-cover { height: 100px; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.pcard-cover-bg { position: absolute; inset: 0; transition: transform .4s; }
+.pcard:hover .pcard-cover-bg { transform: scale(1.07); }
+.pcard-cover-fade { position: absolute; inset: 0; background: linear-gradient(to bottom,transparent 40%,rgba(8,18,34,.95)); }
+.pcard-overlay { position: absolute; inset: 0; background: rgba(0,178,255,.15); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .2s; }
+.pcard:hover .pcard-overlay { opacity: 1; }
+.pcard-play { display: flex; align-items: center; gap: 7px; background: var(--primary); color: white; border-radius: 7px; padding: 8px 16px; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+.pcard-badges { position: absolute; top: 7px; left: 7px; display: flex; gap: 4px; }
+.pbadge { font-size: 8px; font-weight: 700; letter-spacing: .08em; padding: 2px 6px; border-radius: 4px; backdrop-filter: blur(8px); }
+.pb-new { background: rgba(0,178,255,.25); color: var(--primary); border: 1px solid rgba(0,178,255,.4); }
+.pb-star { background: rgba(251,191,36,.2); color: #fbb724; border: 1px solid rgba(251,191,36,.35); }
+.pcard-body { padding: 10px 12px 12px; }
+.pcard-name { font-size: 13.5px; font-weight: 600; margin-bottom: 6px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcard-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.pm { font-size: 10px; display: flex; align-items: center; gap: 3px; color: var(--text-muted); }
+.pm-dot { width: 6px; height: 6px; border-radius: 50%; }
+.pcard-add { background: rgba(8,18,34,.4); border: 1px dashed rgba(255,255,255,.12); border-radius: 12px; height: 12rem; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; gap: 10px; transition: all .2s; }
+.pcard-add:hover { border-color: rgba(0,178,255,.35); background: rgba(0,178,255,.05); }
+.add-icon { width: 38px; height: 38px; border-radius: 50%; background: rgba(0,178,255,.12); border: 1px solid rgba(0,178,255,.25); display: flex; align-items: center; justify-content: center; color: var(--primary); }
+/* DISCOVER */
+.discover-view { flex: 1; flex-direction: column; overflow: hidden; }
+.disc-nav { display: flex; align-items: center; gap: 8px; padding: 14px 24px 0; flex-shrink: 0; flex-wrap: wrap; }
+.disc-tab { padding: 6px 14px; border-radius: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .07em; cursor: pointer; transition: all .2s; border: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.03); color: var(--text-muted); }
+.disc-tab.on { background: rgba(0,178,255,.12); border-color: rgba(0,178,255,.28); color: var(--primary); }
+.disc-tab:hover:not(.on) { background: rgba(255,255,255,.07); color: rgba(255,255,255,.7); }
+.disc-search { display: flex; align-items: center; gap: 9px; flex: 1; max-width: 400px; margin-left: auto; background: var(--panel-bg); border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 7px 13px; }
+.disc-search input { flex: 1; background: none; border: none; outline: none; color: white; font-family: "Space Grotesk",sans-serif; font-size: 13px; }
+.disc-search input::placeholder { color: var(--text-faint); }
+.disc-content { flex: 1; overflow-y: auto; padding: 16px 24px 24px; }
+.disc-content::-webkit-scrollbar { width: 4px; }
+.disc-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 2px; }
+.hero-banner { height: 180px; border-radius: 14px; overflow: hidden; position: relative; cursor: pointer; margin-bottom: 24px; border: 1px solid rgba(255,255,255,.08); transition: all .3s; }
+.hero-banner:hover { border-color: rgba(0,178,255,.25); box-shadow: 0 0 40px rgba(0,178,255,.12); }
+.hero-bg { position: absolute; inset: 0; transition: transform .5s; }
+.hero-banner:hover .hero-bg { transform: scale(1.03); }
+.hero-ov { position: absolute; inset: 0; background: linear-gradient(to right,rgba(3,9,18,.92) 40%,transparent 80%); }
+.hero-cnt { position: absolute; inset: 0; padding: 28px 32px; display: flex; flex-direction: column; justify-content: flex-end; }
+.hero-tag { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: var(--primary); margin-bottom: 6px; }
+.hero-title { font-size: 24px; font-weight: 700; margin-bottom: 6px; line-height: 1.2; }
+.hero-desc { font-size: 12px; color: var(--text-main); max-width: 440px; line-height: 1.6; margin-bottom: 14px; }
+.hero-acts { display: flex; gap: 8px; }
+.hbtn-p { padding: 9px 20px; background: var(--primary); color: white; border-radius: 7px; font-size: 12px; font-weight: 700; letter-spacing: .08em; cursor: pointer; }
+.hbtn-s { padding: 9px 20px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15); color: rgba(255,255,255,.8); border-radius: 7px; font-size: 12px; font-weight: 700; letter-spacing: .08em; cursor: pointer; }
+.hero-dots { position: absolute; bottom: 14px; right: 18px; display: flex; gap: 5px; }
+.hd { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.25); cursor: pointer; transition: all .2s; }
+.hd.on { background: var(--primary); width: 18px; border-radius: 3px; }
+.disc-sec { margin-bottom: 28px; }
+.disc-sec-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.disc-sec-title { font-size: 14px; font-weight: 700; letter-spacing: .06em; }
+.see-all { font-size: 11.5px; color: var(--primary); cursor: pointer; font-weight: 600; }
+.see-all:hover { text-decoration: underline; }
+.mpack-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(152px,1fr)); gap: 10px; }
+.mpack { background: var(--panel-bg); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; overflow: hidden; cursor: pointer; transition: all .22s; }
+.mpack:hover { border-color: rgba(0,178,255,.25); transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.mpack-img { height: 95px; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.mpack-img-bg { position: absolute; inset: 0; transition: transform .4s; }
+.mpack:hover .mpack-img-bg { transform: scale(1.08); }
+.mpack-img-fade { position: absolute; inset: 0; background: linear-gradient(to bottom,transparent 50%,rgba(8,18,34,1)); }
+.mpack-body { padding: 8px 10px 10px; }
+.mpack-name { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mpack-by { font-size: 10.5px; color: var(--text-muted); margin-bottom: 6px; }
+.mpack-dl { font-size: 10px; color: var(--text-faint); display: flex; align-items: center; gap: 3px; }
+.cat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+.cat-card { background: var(--panel-bg); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 18px; text-align: center; cursor: pointer; transition: all .2s; }
+.cat-card:hover { border-color: rgba(0,178,255,.25); background: rgba(0,178,255,.06); }
+.cat-icon { font-size: 26px; margin-bottom: 7px; }
+.cat-name { font-size: 12.5px; font-weight: 600; }
+/* SETTINGS */
+.settings-view { flex: 1; flex-direction: column; overflow: hidden; }
+.settings-inner { flex: 1; overflow-y: auto; padding: 24px; display: flex; gap: 20px; }
+.settings-inner::-webkit-scrollbar { width: 3px; }
+.settings-inner::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 2px; }
+.settings-nav { width: 175px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; }
+.snav-lbl { font-size: 10px; font-weight: 700; letter-spacing: .14em; color: var(--text-faint); padding: 4px 13px 8px; }
+.snav-item { display: flex; align-items: center; gap: 10px; padding: 9px 13px; border-radius: 8px; cursor: pointer; font-size: 12.5px; font-weight: 600; letter-spacing: .06em; color: var(--text-muted); transition: all .2s; border: 1px solid transparent; }
+.snav-item:hover { background: rgba(255,255,255,.06); color: var(--text-strong); }
+.snav-item.on { background: rgba(0,178,255,.1); border-color: rgba(0,178,255,.2); color: var(--primary); }
+.settings-content { flex: 1; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.settings-content::-webkit-scrollbar { width: 3px; }
+.settings-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 2px; }
+.sbox { background: var(--panel-bg); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: 18px; }
+.sbox-title { font-size: 11px; font-weight: 700; letter-spacing: .12em; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 7px; }
+.sbox-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.55; }
+.sw { width: 30px; height: 30px; border-radius: 7px; cursor: pointer; transition: all .2s; border: 2px solid rgba(255,255,255,.18); display: inline-block; }
+.sw.on { border-color: #fff; box-shadow: 0 0 10px rgba(0,178,255,.4); }
+.sw:hover { transform: scale(1.12); }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.trow { background: rgba(5,13,26,.62); border: 1px solid rgba(255,255,255,.06); border-radius: 10px; padding: 13px 15px; display: flex; align-items: center; justify-content: space-between; }
+.tname { font-size: 12.5px; font-weight: 600; margin-bottom: 3px; }
+.tsub { font-size: 10.5px; color: var(--text-muted); line-height: 1.45; }
+.toggle { width: 40px; height: 22px; border-radius: 11px; cursor: pointer; position: relative; transition: background .3s; flex-shrink: 0; border: none; }
+.toggle.on { background: var(--primary); }
+.toggle.off { background: rgba(255,255,255,.12); }
+.toggle::after { content: ""; position: absolute; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .3s; }
+.toggle.on::after { left: calc(100% - 19px); }
+.toggle.off::after { left: 3px; background: rgba(255,255,255,.4); }
+.slider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.slider-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.slider-label { font-size: 11px; font-weight: 600; }
+.slider-value { font-size: 11px; color: var(--primary); font-weight: 700; }
+.slider-track { position: relative; height: 4px; background: rgba(255,255,255,.1); border-radius: 2px; }
+.slider-fill { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg,var(--primary),var(--secondary)); border-radius: 2px; }
+.slider-thumb { position: absolute; top: 50%; width: 13px; height: 13px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 8px rgba(0,178,255,.5); cursor: pointer; transform: translate(-50%,-50%); }
+.slider-scale { display: flex; justify-content: space-between; margin-top: 5px; font-size: 9px; color: rgba(255,255,255,.2); }
+/* STATUS BAR */
+.statusbar { height: 36px; min-height: 36px; background: rgba(3,9,18,.96); border-top: 1px solid rgba(255,255,255,.06); display: flex; align-items: center; padding: 0 16px; gap: 14px; position: relative; z-index: 60; flex-shrink: 0; }
+.sbi { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-muted); letter-spacing: .06em; }
+.sbi.live { color: rgba(0,255,204,.7); }
+.sdot { width: 6px; height: 6px; border-radius: 50%; }
+.sdot.g { background: #00ffcc; box-shadow: 0 0 5px rgba(0,255,204,.5); animation: sbp 2s infinite; }
+@keyframes sbp { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+.sb-sp { flex: 1; }
+.sb-ver { font-size: 10.5px; color: var(--text-faint); letter-spacing: .08em; }
+.sb-acts { display: flex; gap: 6px; }
+.sb-act { display: flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); color: var(--text-muted); cursor: pointer; transition: all .2s; }
+.sb-act:hover { background: rgba(255,255,255,.1); color: var(--text-strong); }
+/* MODAL */
+.modal-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.6); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-box { background: rgba(8,18,34,.96); border: 1px solid rgba(0,178,255,.2); border-radius: 14px; width: 100%; max-width: 480px; box-shadow: 0 32px 80px rgba(0,0,0,.5),0 0 40px rgba(0,178,255,.08); overflow: hidden; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.modal-close { width: 28px; height: 28px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-faint); transition: all .2s; }
+.modal-close:hover { background: rgba(255,255,255,.12); color: #fff; }
+.modal-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.modal-field { display: flex; flex-direction: column; gap: 6px; }
+.modal-label { font-size: 10px; font-weight: 700; letter-spacing: .14em; color: var(--text-faint); }
+.modal-input { background: rgba(5,13,26,.8); border: 1px solid rgba(255,255,255,.1); border-radius: 8px; padding: 10px 13px; font-size: 13px; color: white; outline: none; transition: border-color .2s; width: 100%; }
+.modal-input:focus { border-color: rgba(0,178,255,.4); }
+.modal-input::placeholder { color: var(--text-faint); }
+.modal-toggle-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.04); color: var(--text-muted); cursor: pointer; transition: all .2s; }
+.modal-toggle-pill:hover { background: rgba(255,255,255,.08); }
+.modal-toggle-pill input { width: 13px; height: 13px; accent-color: var(--primary); }
+/* ANIMATIONS */
+@keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+.fi { animation: fadeUp .45s ease-out forwards; opacity: 0; }
+.fi1 { animation-delay: .04s; } .fi2 { animation-delay: .09s; } .fi3 { animation-delay: .14s; }
+.fi4 { animation-delay: .19s; } .fi5 { animation-delay: .24s; } .fi6 { animation-delay: .29s; }
+/* RESPONSIVE */
+@media (max-width: 1180px) {
+  body { overflow: auto; }
+  .home { flex-direction: column; }
+  .news-side { width: 100%; max-height: 280px; border-left: none; border-top: 1px solid rgba(255,255,255,.05); }
+  .home-main { padding: 24px 24px 20px; }
+  .lbar { max-width: none; }
+  .settings-inner { flex-direction: column; }
+  .settings-nav { width: 100%; }
+}
+@media (max-width: 760px) {
+  .topbar { height: auto; padding: 12px; flex-wrap: wrap; gap: 10px; }
+  .top-nav { order: 3; width: 100%; flex-wrap: wrap; }
+  .tb-space { display: none; }
+  .home-main,.disc-content,.settings-inner,.profiles-grid,.ptool,.disc-nav { padding-left: 16px; padding-right: 16px; }
+  .lbar { flex-wrap: wrap; gap: 10px; padding: 14px; }
+  .launch-btn,.lgear { width: 100%; justify-content: center; margin-left: 0; }
+  .stat-strip { flex-wrap: wrap; justify-content: center; }
+  .disc-search { max-width: none; margin-left: 0; width: 100%; }
+  .statusbar { height: auto; padding: 10px 12px; flex-wrap: wrap; }
+  .toggles,.slider-grid { grid-template-columns: 1fr; }
+  .cat-grid { grid-template-columns: repeat(2,1fr); }
+}
+</style>
