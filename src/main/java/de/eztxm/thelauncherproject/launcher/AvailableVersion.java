@@ -1,4 +1,3 @@
 package de.eztxm.thelauncherproject.launcher;
 
-public class AvailableVersion {
-}
+public record AvailableVersion(String id, String type, String releaseTime) {}

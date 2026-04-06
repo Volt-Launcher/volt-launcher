@@ -1,4 +1,4 @@
-package de.eztxm.thelauncherproject.util;
+package de.eztxm.thelauncherproject.util.async;
 
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;

@@ -1,4 +1,4 @@
-package de.eztxm.thelauncherproject.util;
+package de.eztxm.thelauncherproject.util.async;
 
 import java.util.ArrayList;
 import java.util.List;

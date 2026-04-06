@@ -1,11 +1,8 @@
 package de.eztxm.thelauncherproject.launcher;
 
 import de.eztxm.thelauncherproject.AppPaths;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import de.eztxm.thelauncherproject.util.HttpFetcher;
+import de.eztxm.thelauncherproject.util.JsonUtil;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -15,355 +12,220 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
-import java.security.MessageDigest;
 import java.util.Comparator;
-import java.util.EnumSet;
-import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-public class TemurinJdkDownloader {
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 
-    private final OkHttpClient httpClient = new OkHttpClient();
+public final class TemurinJdkDownloader {
+
+    private static final String ADOPTIUM_API =
+            "https://api.adoptium.net/v3/assets/latest/%d/hotspot?architecture=%s&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=%s&vendor=eclipse";
+
+    private record ReleaseAsset(String downloadUrl, String fileName, String sha256) {}
+
+    private final HttpFetcher http = new HttpFetcher();
 
     public Path ensureDownloadedRuntime(int majorVersion) throws Exception {
-        String os = detectTemurinOs();
-        String architecture = detectTemurinArchitecture();
-        String executableName = isWindows() ? "java.exe" : "java";
+        String os = detectOs();
+        String arch = detectArch();
+        String execName = isWindows() ? "java.exe" : "java";
 
-        Path runtimeDirectory = AppPaths.temurinRuntimesDirectory()
-                .resolve("jdk-" + majorVersion + "-" + os + "-" + architecture);
-        Path javaExecutable = runtimeDirectory.resolve("bin").resolve(executableName);
-        if (Files.exists(javaExecutable)) {
-            applyRuntimePermissions(runtimeDirectory);
-            return javaExecutable;
+        Path runtimeDir = AppPaths.temurinRuntimesDirectory()
+                .resolve("jdk-" + majorVersion + "-" + os + "-" + arch);
+        Path javaExec = runtimeDir.resolve("bin").resolve(execName);
+
+        if (Files.exists(javaExec)) {
+            applyPermissions(runtimeDir);
+            return javaExec;
         }
 
         Files.createDirectories(AppPaths.temurinRuntimesDirectory());
         Files.createDirectories(AppPaths.runtimeDownloadsDirectory());
 
-        ReleaseAsset asset = fetchLatestAsset(majorVersion, os, architecture);
+        ReleaseAsset asset = fetchAsset(majorVersion, os, arch);
         Path archivePath = AppPaths.runtimeDownloadsDirectory().resolve(asset.fileName());
-        downloadFile(asset.downloadUrl(), archivePath, asset.sha256());
+        http.download(asset.downloadUrl(), archivePath, asset.sha256());
 
-        Path tempExtractDirectory = AppPaths.temurinRuntimesDirectory()
-                .resolve(runtimeDirectory.getFileName().toString() + ".tmp");
-        recreateDirectory(tempExtractDirectory);
+        Path tempDir = AppPaths.temurinRuntimesDirectory()
+                .resolve(runtimeDir.getFileName().toString() + ".tmp");
+        recreateDirectory(tempDir);
         try {
-            extractArchive(archivePath, tempExtractDirectory);
-
-            Path extractedJava = findJavaExecutable(tempExtractDirectory, executableName);
-            if (extractedJava == null) {
-                throw new IllegalStateException("Downloaded Temurin archive did not contain a Java executable");
+            extractArchive(archivePath, tempDir);
+            Path extracted = findJavaExecutable(tempDir, execName);
+            if (extracted == null) {
+                throw new IllegalStateException("Temurin archive did not contain a Java executable");
             }
-
-            Path extractedRoot = extractedJava.getParent().getParent();
-            recreateDirectory(runtimeDirectory);
-            copyDirectory(extractedRoot, runtimeDirectory);
-            applyRuntimePermissions(runtimeDirectory);
-
-            if (!Files.exists(javaExecutable) || (!isWindows() && !Files.isExecutable(javaExecutable))) {
-                throw new IllegalStateException("Temurin runtime was extracted but java executable is missing or not executable");
+            recreateDirectory(runtimeDir);
+            copyDirectory(extracted.getParent().getParent(), runtimeDir);
+            applyPermissions(runtimeDir);
+            if (!Files.exists(javaExec) || (!isWindows() && !Files.isExecutable(javaExec))) {
+                throw new IllegalStateException("Java executable missing after extraction");
             }
         } finally {
-            deleteDirectoryIfExists(tempExtractDirectory);
+            deleteSilently(tempDir);
         }
-
-        return javaExecutable;
+        return javaExec;
     }
 
-    private ReleaseAsset fetchLatestAsset(int majorVersion, String os, String architecture) throws Exception {
-        String url = "https://api.adoptium.net/v3/assets/latest/" + majorVersion
-                + "/hotspot?architecture=" + architecture
-                + "&heap_size=normal"
-                + "&image_type=jdk"
-                + "&jvm_impl=hotspot"
-                + "&os=" + os
-                + "&vendor=eclipse";
-
-        JSONObject release = getFirstRelease(url);
-        JSONObject packageJson = getPackageJson(release);
+    private ReleaseAsset fetchAsset(int majorVersion, String os, String arch) throws Exception {
+        String url = String.format(ADOPTIUM_API, majorVersion, arch, os);
+        JSONArray releases = http.getJsonArray(url);
+        if (releases.isEmpty()) {
+            throw new IllegalStateException(
+                    "No Temurin JDK found for Java " + majorVersion + " on " + os + "/" + arch);
+        }
+        JSONObject pkg = resolvePackage(releases.getJSONObject(0));
         return new ReleaseAsset(
-                packageJson.getString("link"),
-                packageJson.getString("name"),
-                packageJson.optString("checksum", ""));
+                JsonUtil.requireString(pkg, "link"),
+                JsonUtil.requireString(pkg, "name"),
+                pkg.optString("checksum", ""));
     }
 
-    private JSONObject getFirstRelease(String url) throws Exception {
-        Request request = new Request.Builder().url(url).get().build();
-        try (Response response = httpClient.newCall(request).execute()) {
-            String content = response.body() != null ? response.body().string() : "";
-            if (!response.isSuccessful()) {
-                throw new IOException("Failed to query Adoptium API: HTTP " + response.code());
-            }
-
-            JSONArray releases = new JSONArray(content);
-            if (releases.isEmpty()) {
-                throw new IllegalStateException("No Temurin JDK release found for this platform and Java version");
-            }
-            return releases.getJSONObject(0);
-        }
-    }
-
-    private JSONObject getPackageJson(JSONObject release) {
+    private JSONObject resolvePackage(JSONObject release) {
         if (release.has("binary")) {
-            return release.getJSONObject("binary").getJSONObject("package");
+            return JsonUtil.requireObject(release, "binary.package");
         }
-        if (release.has("binaries")) {
-            JSONArray binaries = release.getJSONArray("binaries");
-            if (!binaries.isEmpty()) {
-                return binaries.getJSONObject(0).getJSONObject("package");
-            }
+        JSONArray binaries = release.optJSONArray("binaries");
+        if (binaries != null && !binaries.isEmpty()) {
+            return binaries.getJSONObject(0).getJSONObject("package");
         }
         throw new IllegalStateException("Unexpected Adoptium API response format");
     }
 
-    private void downloadFile(String url, Path target, String expectedSha256) throws Exception {
-        if (Files.exists(target) && sha256Matches(target, expectedSha256)) {
+    private void extractArchive(Path archive, Path targetDir) throws Exception {
+        String name = archive.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
+            extractTarGz(archive, targetDir);
             return;
         }
-
-        Files.createDirectories(target.getParent());
-        Request request = new Request.Builder().url(url).get().build();
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful() || response.body() == null) {
-                throw new IOException("Failed to download Temurin JDK: HTTP " + response.code());
-            }
-
-            Path tempFile = Files.createTempFile(target.getParent(), "temurin-", ".tmp");
-            try (InputStream inputStream = response.body().byteStream()) {
-                Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
-            }
-
-            if (!sha256Matches(tempFile, expectedSha256)) {
-                Files.deleteIfExists(tempFile);
-                throw new IOException("SHA-256 mismatch for downloaded Temurin JDK archive");
-            }
-
-            Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
-        }
+        extractZip(archive, targetDir);
     }
 
-    private boolean sha256Matches(Path file, String expectedSha256) throws Exception {
-        if (expectedSha256 == null || expectedSha256.isBlank()) {
-            return Files.exists(file);
-        }
-
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (InputStream inputStream = Files.newInputStream(file)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = inputStream.read(buffer)) != -1) {
-                digest.update(buffer, 0, read);
-            }
-        }
-
-        byte[] hash = digest.digest();
-        StringBuilder builder = new StringBuilder(hash.length * 2);
-        for (byte b : hash) {
-            builder.append(String.format("%02x", b));
-        }
-        return builder.toString().equalsIgnoreCase(expectedSha256);
-    }
-
-    private void extractArchive(Path archive, Path targetDirectory) throws Exception {
-        String fileName = archive.getFileName().toString().toLowerCase(Locale.ROOT);
-        if (fileName.endsWith(".zip")) {
-            extractZip(archive, targetDirectory);
-            return;
-        }
-        if (fileName.endsWith(".tar.gz") || fileName.endsWith(".tgz")) {
-            extractTarGz(archive, targetDirectory);
-            return;
-        }
-        throw new IllegalStateException("Unsupported Temurin archive format: " + fileName);
-    }
-
-    private void extractZip(Path archive, Path targetDirectory) throws Exception {
-        try (InputStream inputStream = Files.newInputStream(archive);
-             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
-            ZipEntry entry;
-            while ((entry = zipInputStream.getNextEntry()) != null) {
-                Path output = normalizeExtractedPath(targetDirectory, entry.getName());
-                if (output == null) {
-                    continue;
-                }
-                if (entry.isDirectory()) {
-                    Files.createDirectories(output);
-                } else {
-                    Files.createDirectories(output.getParent());
-                    Files.copy(zipInputStream, output, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-        }
-    }
-
-    private void extractTarGz(Path archive, Path targetDirectory) throws Exception {
-        try (InputStream inputStream = Files.newInputStream(archive);
-             GZIPInputStream gzipInputStream = new GZIPInputStream(inputStream);
-             TarArchiveInputStream tarInputStream = new TarArchiveInputStream(gzipInputStream)) {
+    private void extractTarGz(Path archive, Path targetDir) throws Exception {
+        try (InputStream fi = Files.newInputStream(archive);
+             GZIPInputStream gi = new GZIPInputStream(fi);
+             TarArchiveInputStream tar = new TarArchiveInputStream(gi)) {
             TarArchiveEntry entry;
-            while ((entry = tarInputStream.getNextEntry()) != null) {
-                Path output = normalizeExtractedPath(targetDirectory, entry.getName());
-                if (output == null) {
+            while ((entry = tar.getNextEntry()) != null) {
+                if (!tar.canReadEntryData(entry)) {
                     continue;
                 }
-                if (entry.isDirectory()) {
-                    Files.createDirectories(output);
-                } else {
-                    Files.createDirectories(output.getParent());
-                    Files.copy(tarInputStream, output, StandardCopyOption.REPLACE_EXISTING);
+                Path out = targetDir.resolve(entry.getName()).normalize();
+                if (!out.startsWith(targetDir)) {
+                    throw new IOException("Invalid tar path: " + entry.getName());
                 }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(out);
+                    continue;
+                }
+                Files.createDirectories(out.getParent());
+                Files.copy(tar, out, StandardCopyOption.REPLACE_EXISTING);
             }
         }
     }
 
-    private Path normalizeExtractedPath(Path targetDirectory, String originalEntryName) throws IOException {
-        String normalized = originalEntryName.replace('\\', '/');
-        int firstSlash = normalized.indexOf('/');
-        String relativeName = firstSlash >= 0 ? normalized.substring(firstSlash + 1) : normalized;
-        if (relativeName.isBlank()) {
-            return null;
+    private void extractZip(Path archive, Path targetDir) throws Exception {
+        try (InputStream fi = Files.newInputStream(archive);
+             ZipInputStream zip = new ZipInputStream(fi)) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                Path out = targetDir.resolve(entry.getName()).normalize();
+                if (!out.startsWith(targetDir)) {
+                    throw new IOException("Invalid zip path: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(out);
+                    continue;
+                }
+                Files.createDirectories(out.getParent());
+                Files.copy(zip, out, StandardCopyOption.REPLACE_EXISTING);
+            }
         }
-
-        Path output = targetDirectory.resolve(relativeName).normalize();
-        if (!output.startsWith(targetDirectory)) {
-            throw new IOException("Invalid archive entry path: " + originalEntryName);
-        }
-        return output;
     }
 
-    private Path findJavaExecutable(Path directory, String executableName) throws IOException {
-        try (var walk = Files.walk(directory, 6)) {
-            return walk.filter(path -> Files.isRegularFile(path)
-                            && path.getFileName().toString().equals(executableName))
+    private Path findJavaExecutable(Path dir, String execName) throws Exception {
+        try (var walk = Files.walk(dir)) {
+            return walk
+                    .filter(p -> p.getFileName().toString().equals(execName))
+                    .filter(p -> p.getParent().getFileName().toString().equals("bin"))
                     .findFirst()
                     .orElse(null);
         }
     }
 
-    private void copyDirectory(Path source, Path target) throws IOException {
-        try (var walk = Files.walk(source)) {
-            walk.forEach(path -> {
-                try {
-                    Path relative = source.relativize(path);
-                    Path destination = target.resolve(relative);
-                    if (Files.isDirectory(path)) {
-                        Files.createDirectories(destination);
-                    } else {
-                        Files.createDirectories(destination.getParent());
-                        Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING);
-                    }
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
+    private void copyDirectory(Path src, Path dst) throws IOException {
+        try (var walk = Files.walk(src)) {
+            for (Path source : (Iterable<Path>) walk::iterator) {
+                Path target = dst.resolve(src.relativize(source));
+                if (Files.isDirectory(source)) {
+                    Files.createDirectories(target);
+                    continue;
                 }
-            });
-        }
-    }
-
-    private void recreateDirectory(Path directory) throws IOException {
-        if (Files.exists(directory)) {
-            try (var walk = Files.walk(directory)) {
-                walk.sorted(Comparator.reverseOrder())
-                        .forEach(path -> {
-                            try {
-                                Files.deleteIfExists(path);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        });
+                Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
             }
         }
-        Files.createDirectories(directory);
     }
 
-    private void applyExecutablePermissions(Path executable) {
+    private void applyPermissions(Path runtimeDir) {
+        if (isWindows() || !Files.isDirectory(runtimeDir)) {
+            return;
+        }
+        Path binDir = runtimeDir.resolve("bin");
+        if (!Files.isDirectory(binDir)) {
+            return;
+        }
+        try (var walk = Files.walk(binDir, 1)) {
+            walk.filter(Files::isRegularFile).forEach(this::applyExecPermission);
+        } catch (IOException _) {}
+    }
+
+    private void applyExecPermission(Path path) {
         try {
-            Set<PosixFilePermission> permissions = EnumSet.of(
-                    PosixFilePermission.OWNER_READ,
-                    PosixFilePermission.OWNER_WRITE,
-                    PosixFilePermission.OWNER_EXECUTE,
-                    PosixFilePermission.GROUP_READ,
-                    PosixFilePermission.GROUP_EXECUTE,
-                    PosixFilePermission.OTHERS_READ,
-                    PosixFilePermission.OTHERS_EXECUTE);
-            Files.setPosixFilePermissions(executable, permissions);
-        } catch (Exception ignored) {
-        }
+            var perms = Files.getPosixFilePermissions(path);
+            perms.add(PosixFilePermission.OWNER_EXECUTE);
+            perms.add(PosixFilePermission.GROUP_EXECUTE);
+            perms.add(PosixFilePermission.OTHERS_EXECUTE);
+            Files.setPosixFilePermissions(path, perms);
+        } catch (UnsupportedOperationException | IOException _) {}
     }
 
-    private void applyRuntimePermissions(Path runtimeDirectory) {
-        if (isWindows() || !Files.isDirectory(runtimeDirectory)) {
-            return;
-        }
-
-        List<Path> executables = List.of(
-                runtimeDirectory.resolve("bin").resolve("java"),
-                runtimeDirectory.resolve("bin").resolve("keytool"),
-                runtimeDirectory.resolve("lib").resolve("jspawnhelper"));
-
-        for (Path executable : executables) {
-            if (Files.exists(executable)) {
-                applyExecutablePermissions(executable);
-            }
-        }
-
-        Path binDirectory = runtimeDirectory.resolve("bin");
-        if (!Files.isDirectory(binDirectory)) {
-            return;
-        }
-
-        try (var walk = Files.walk(binDirectory, 1)) {
-            walk.filter(Files::isRegularFile).forEach(this::applyExecutablePermissions);
-        } catch (IOException ignored) {
-        }
+    private void recreateDirectory(Path dir) throws IOException {
+        deleteSilently(dir);
+        Files.createDirectories(dir);
     }
 
-    private void deleteDirectoryIfExists(Path directory) {
-        if (!Files.exists(directory)) {
+    private void deleteSilently(Path dir) {
+        if (!Files.exists(dir)) {
             return;
         }
-
-        try (var walk = Files.walk(directory)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
-                    Files.deleteIfExists(path);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
+                    Files.deleteIfExists(p);
+                } catch (IOException _) {}
             });
-        } catch (Exception ignored) {
-        }
+        } catch (Exception _) {}
     }
 
-    private String detectTemurinOs() {
-        String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        if (osName.contains("win")) {
-            return "windows";
-        }
-        if (osName.contains("mac") || osName.contains("darwin")) {
-            return "mac";
-        }
+    private String detectOs() {
+        String name = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (name.contains("win")) { return "windows"; }
+        if (name.contains("mac") || name.contains("darwin")) { return "mac"; }
         return "linux";
     }
 
-    private String detectTemurinArchitecture() {
+    private String detectArch() {
         String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-        if (arch.contains("aarch64") || arch.contains("arm64")) {
-            return "aarch64";
-        }
+        if (arch.contains("aarch64") || arch.contains("arm64")) { return "aarch64"; }
         return "x64";
     }
 
     private boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
-
-    private record ReleaseAsset(String downloadUrl, String fileName, String sha256) {
-    }
 }
-
-

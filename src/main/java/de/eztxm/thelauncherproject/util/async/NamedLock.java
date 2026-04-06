@@ -1,5 +1,6 @@
-package de.eztxm.thelauncherproject.util;
+package de.eztxm.thelauncherproject.util.async;
 
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
@@ -18,13 +19,16 @@ public final class NamedLock {
         }
     }
 
-    public <T> T withLock(String key, Supplier<T> supplier) {
-        ReentrantLock lock = lockFor(key);
+    public <V> V withLock(String key, Callable<V> task) throws Exception {
+        ReentrantLock lock = locks.computeIfAbsent(key, (String _) -> new ReentrantLock(true));
         lock.lock();
         try {
-            return supplier.get();
+            return task.call();
         } finally {
             lock.unlock();
+            if (!lock.hasQueuedThreads() && !lock.isLocked()) {
+                locks.remove(key, lock);
+            }
         }
     }
 

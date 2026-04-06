@@ -1,71 +1,124 @@
 package de.eztxm.thelauncherproject;
 
+import de.eztxm.thelauncherproject.jcef.JcefBootstrap;
 import de.eztxm.thelauncherproject.rest.RestServer;
-import javafx.application.Application;
-import javafx.scene.Scene;
-import javafx.scene.web.WebEngine;
-import javafx.scene.web.WebView;
-import javafx.stage.Stage;
+import org.cef.CefApp;
+import org.cef.CefClient;
+import org.cef.browser.CefBrowser;
+import org.cef.browser.CefFrame;
+import org.cef.handler.CefLifeSpanHandlerAdapter;
 
-public class TheLauncherProject extends Application {
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.MouseWheelEvent;
+import java.awt.event.MouseWheelListener;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
-    private RestServer restServer;
+public class TheLauncherProject {
 
-    @Override
-    public void start(Stage stage) throws Exception {
+    private static volatile RestServer restServer;
+    private static volatile CefApp cefApp;
+
+    public static void main(String[] args) throws Exception {
         restServer = new RestServer(7070);
         restServer.start();
 
-        Thread.sleep(500L);
-
-        WebView webView = createConfiguredWebView(stage, false);
-        webView.getEngine().load("http://localhost:7070/");
-
-        Scene scene = new Scene(webView, 1280.0, 720.0);
-        stage.setTitle("TheLauncherProject");
-        stage.setScene(scene);
-        stage.show();
+        Thread.ofVirtual().start(() -> {
+            try {
+                CefApp app = JcefBootstrap.initialize(args);
+                cefApp = app;
+                SwingUtilities.invokeLater(() -> buildMainWindow(app));
+            } catch (Exception e) {
+                System.err.println("[JCEF] Initialisierung fehlgeschlagen: " + e.getMessage());
+                e.printStackTrace();
+                shutdown();
+            }
+        });
     }
 
-    @Override
-    public void stop() throws Exception {
-        if (restServer != null) {
-            restServer.stop();
+    private static JFrame buildMainWindow(CefApp app) {
+        JFrame frame = new JFrame("TheLauncherProject");
+        frame.setSize(1280, 720);
+        frame.setLocationRelativeTo(null);
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+
+        frame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                shutdown();
+            }
+        });
+
+        frame.setVisible(true);
+
+        CefClient client = app.createClient();
+        attachPopupHandler(client, frame);
+        CefBrowser browser = client.createBrowser("http://localhost:7070/", false, false);
+
+        for (var listener : frame.getWindowListeners()) {
+            frame.removeWindowListener(listener);
         }
-        super.stop();
+        frame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                browser.close(true);
+                frame.dispose();
+                shutdown();
+            }
+        });
+
+        frame.getContentPane().add(browser.getUIComponent(), BorderLayout.CENTER);
+        frame.validate();
+
+        return frame;
     }
 
-    static void main(String[] args) {
-        launch(TheLauncherProject.class, args);
+    private static void attachPopupHandler(CefClient client, JFrame owner) {
+        client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
+            @Override
+            public boolean onBeforePopup(
+                    CefBrowser browser, CefFrame frame,
+                    String targetUrl, String targetFrameName) {
+                SwingUtilities.invokeLater(() -> openPopupWindow(targetUrl, owner));
+                return true;
+            }
+        });
     }
 
-    private WebView createConfiguredWebView(Stage stage, boolean popupWindow) {
-        WebView webView = new WebView();
-        WebEngine engine = webView.getEngine();
+    private static void openPopupWindow(String url, JFrame owner) {
+        CefClient popupClient = cefApp.createClient();
+        CefBrowser popupBrowser = popupClient.createBrowser(url, true, false);
+        popupBrowser.setWindowlessFrameRate(90);
 
-        engine.setCreatePopupHandler(config -> createPopupWindow(stage));
+        JFrame popup = new JFrame("Microsoft Login");
+        popup.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        popup.setLayout(new BorderLayout());
+        popup.add(popupBrowser.getUIComponent(), BorderLayout.CENTER);
+        popup.setSize(520, 760);
+        popup.setLocationRelativeTo(owner);
+        popup.setVisible(true);
 
-        if (popupWindow) {
-            engine.setOnVisibilityChanged(event -> {
-                if (!event.getData()) {
-                    stage.close();
-                }
-            });
-        }
-
-        return webView;
+        popup.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                popupBrowser.close(true);
+                popup.dispose();
+            }
+        });
     }
 
-    private WebEngine createPopupWindow(Stage owner) {
-        Stage popupStage = new Stage();
-        popupStage.initOwner(owner);
-        popupStage.setTitle("Microsoft Login");
-
-        WebView popupView = createConfiguredWebView(popupStage, true);
-        Scene popupScene = new Scene(popupView, 520.0, 760.0);
-        popupStage.setScene(popupScene);
-        popupStage.show();
-
-        return popupView.getEngine();
+    private static void shutdown() {
+        try {
+            if (restServer != null) {
+                restServer.stop();
+            }
+        } catch (Exception _) {}
+        try {
+            if (cefApp != null) {
+                cefApp.dispose();
+            }
+        } catch (Exception _) {}
+        System.exit(0);
     }
 }

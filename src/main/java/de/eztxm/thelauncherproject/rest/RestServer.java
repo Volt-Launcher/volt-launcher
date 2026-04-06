@@ -1,10 +1,6 @@
 package de.eztxm.thelauncherproject.rest;
 
-import de.eztxm.thelauncherproject.launcher.MinecraftLauncherService;
-import de.eztxm.thelauncherproject.launcher.MinecraftLauncherService.AvailableVersion;
-import de.eztxm.thelauncherproject.launcher.MinecraftLauncherService.LaunchResult;
-import de.eztxm.thelauncherproject.launcher.MinecraftLauncherService.RunningInstanceStatus;
-import de.eztxm.thelauncherproject.launcher.LauncherInstance;
+import de.eztxm.thelauncherproject.launcher.*;
 import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth;
 import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.AuthResult;
 import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.AuthFlowStatus;
@@ -280,9 +276,9 @@ public class RestServer {
                 JSONObject json = new JSONObject();
                 json.put("success", true);
                 json.put("instanceName", result.instanceName());
-                json.put("version", result.version());
+                json.put("version", result.versionId());
                 json.put("pid", result.pid());
-                json.put("command", result.command());
+                json.put("command", result.launchCommand());
                 json.put("logFile", result.logFile());
                 json.put("javaMajorVersion", result.javaMajorVersion());
                 json.put("javaExecutable", result.javaExecutable());
@@ -472,7 +468,7 @@ public class RestServer {
         json.put("javaComponent", instance.javaComponent());
 
         RunningInstanceStatus runningStatus = minecraftLauncher.getRunningInstanceStatus(instance.name());
-        json.put("running", runningStatus != null && runningStatus.running());
+        json.put("running", runningStatus != null && runningStatus.alive());
         if (runningStatus != null) {
             json.put("pid", runningStatus.pid());
             json.put("startedAt", runningStatus.startedAt());

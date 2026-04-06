@@ -38,8 +38,7 @@ public class EncryptedAccountStore {
         plain.put("userHash", session.userHash());
         plain.put("xuid", session.xuid());
 
-        Aes256GcmCipher.EncryptedPayload encryptedPayload = cipher.encrypt(
-                plain.toString().getBytes(StandardCharsets.UTF_8));
+        Aes256GcmCipher.EncryptedPayload encryptedPayload = cipher.encrypt(plain.toString().getBytes(StandardCharsets.UTF_8));
 
         JSONObject wrapper = new JSONObject();
         wrapper.put("version", 1);
@@ -82,9 +81,7 @@ public class EncryptedAccountStore {
 
     private void applyOwnerOnlyPermissions() {
         try {
-            Set<PosixFilePermission> permissions = EnumSet.of(
-                    PosixFilePermission.OWNER_READ,
-                    PosixFilePermission.OWNER_WRITE);
+            Set<PosixFilePermission> permissions = EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
             Files.setPosixFilePermissions(storagePath, permissions);
         } catch (UnsupportedOperationException | java.io.IOException ignored) {
         }

@@ -1,4 +1,3 @@
 package de.eztxm.thelauncherproject.launcher;
 
-public record LaunchResult() {
-}
+public record LaunchResult(String instanceName, String versionId, long pid, String launchCommand, String logFile, int javaMajorVersion, String javaExecutable) {}
