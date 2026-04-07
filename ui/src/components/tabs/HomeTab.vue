@@ -119,7 +119,7 @@ const newsItems = [
             BLOG</span>
         </div>
 
-        <div class="flex flex-1 flex-col gap-2 overflow-y-auto p-2.5">
+        <div class="flex flex-1 flex-col gap-2 overflow-y-scroll p-2.5">
           <div v-for="item in newsItems" :key="item.title"
             class="overflow-hidden rounded-xl border border-white/8 bg-[var(--surface-panel-strong)] transition-all duration-200 hover:border-white/15">
             <div class="flex h-20 items-center justify-center text-4xl bg-[var(--surface-panel-muted)]">

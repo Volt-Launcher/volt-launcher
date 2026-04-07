@@ -6,6 +6,7 @@ export interface LauncherInstance { name: string; slug: string; versionId: strin
 export interface AvailableVersion { id: string; type: string; releaseTime: string; }
 export type MainTab = "home" | "profiles" | "skins" | "discover" | "settings";
 export interface JavaRuntime { version: number; path: string; }
+export interface LauncherNotification { id: number; type: "error" | "info"; message: string; timestamp: number; }
 
 // ── Reactive state ──────────────────────────────────────────────────────────
 const authData = ref<AuthData | null>(null);
@@ -24,6 +25,27 @@ const isLoadingInstances = ref(false);
 const isLoadingVersions = ref(false);
 const error = ref<string | null>(null);
 const launcherMessage = ref<string | null>(null);
+
+// ── Notifications ───────────────────────────────────────────────────────────
+const NOTIF_KEY = "launcher_notifications";
+let notifIdCounter = 0;
+const loadStoredNotifications = (): LauncherNotification[] => {
+    try { const raw = sessionStorage.getItem(NOTIF_KEY); if (raw) { const parsed = JSON.parse(raw) as LauncherNotification[]; notifIdCounter = parsed.reduce((max, n) => Math.max(max, n.id), 0); return parsed; } } catch { /* ignore */ }
+    return [];
+};
+const notifications = ref<LauncherNotification[]>(loadStoredNotifications());
+const persistNotifications = () => { try { sessionStorage.setItem(NOTIF_KEY, JSON.stringify(notifications.value)); } catch { /* ignore */ } };
+const pushNotification = (type: "error" | "info", message: string) => {
+    notifications.value.unshift({ id: ++notifIdCounter, type, message, timestamp: Date.now() });
+    persistNotifications();
+};
+const clearNotification = (id: number) => { notifications.value = notifications.value.filter(n => n.id !== id); persistNotifications(); };
+const clearAllNotifications = () => { notifications.value = []; persistNotifications(); };
+const unreadCount = computed(() => notifications.value.length);
+const formatNotifTime = (ts: number) => {
+    const d = Date.now() - ts, s = Math.floor(d / 1000), m = Math.floor(d / 60000), h = Math.floor(d / 3600000), dy = Math.floor(d / 86400000);
+    if (s < 60) return "just now"; if (m < 60) return `${m}m ago`; if (h < 24) return `${h}h ago`; return `${dy}d ago`;
+};
 
 // ── UI state ────────────────────────────────────────────────────────────────
 const activeTab = ref<MainTab>("home");
@@ -272,6 +294,8 @@ const applyAnimations = (enabled: boolean) => {
 
 watch(uiScale, (v) => applyUiScale(v), { immediate: true });
 watch(animationsEnabled, (v) => applyAnimations(v), { immediate: true });
+watch(error, (v) => { if (v) pushNotification("error", v); });
+watch(launcherMessage, (v) => { if (v) pushNotification("info", v); });
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 function init() {
@@ -296,7 +320,7 @@ export function useLauncher() {
         selectedInstanceName, newInstanceName, selectedVersionId,
         includeSnapshots, includeBetas, includeAlphas,
         isAuthenticating, isLaunching, isCreatingInstance, isLoadingInstances, isLoadingVersions,
-        error, launcherMessage,
+        error, launcherMessage, notifications, unreadCount, formatNotifTime, clearNotification, clearAllNotifications,
         activeTab, showCreateModal, profileFilter, discoverTabActive, discoverPlatformActive, settingsNavItem, accentColor, toggleStates,
         uiScale, animationsEnabled, showFps,
         javaRuntimes, jvmArgs, minMemory, maxMemory,

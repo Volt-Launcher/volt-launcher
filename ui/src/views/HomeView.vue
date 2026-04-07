@@ -3,7 +3,6 @@ import { onBeforeUnmount, onMounted, watch } from 'vue';
 import { useLauncher } from '@/composables/useLauncher';
 import AuroraBackground from '@/components/AuroraBackground.vue';
 import TopBar from '@/components/TopBar.vue';
-import StatusBar from '@/components/StatusBar.vue';
 import CreateProfileModal from '@/components/CreateProfileModal.vue';
 import HomeTab from '@/components/tabs/HomeTab.vue';
 import ProfilesTab from '@/components/tabs/ProfilesTab.vue';
@@ -79,7 +78,6 @@ onBeforeUnmount(() => {
       <DiscoverTab />
       <SettingsTab />
     </div>
-    <StatusBar />
     <CreateProfileModal />
   </div>
 </template>

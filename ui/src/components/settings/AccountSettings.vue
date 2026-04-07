@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
 
-const { authData, isAuthenticating, authUrl, handleLogin, handleLogout } = useLauncher();
+const { authData, isAuthenticating, handleLogin, handleLogout } = useLauncher();
 </script>
 
 <template>
@@ -43,16 +43,6 @@ const { authData, isAuthenticating, authUrl, handleLogin, handleLogout } = useLa
         >
           {{ isAuthenticating ? "Waiting…" : "Sign in with Microsoft" }}
         </button>
-        <div v-if="isAuthenticating" class="text-[length:var(--text-xs)] text-white/60">
-          Complete the login in the popup window.
-          <a
-            v-if="authUrl"
-            :href="authUrl"
-            target="_blank"
-            rel="noopener"
-            class="mt-1 block break-all text-[var(--primary)] underline"
-          >{{ authUrl }}</a>
-        </div>
       </div>
     </div>
   </div>
