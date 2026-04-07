@@ -13,13 +13,32 @@ import org.json.JSONObject;
 
 public class RestServer {
 
+    @FunctionalInterface
+    public interface WindowAction {
+        void execute();
+    }
+
     private final int port;
     private Javalin app;
     private final MicrosoftAuth msAuth;
     private final MinecraftLauncherService minecraftLauncher;
+    private final WindowAction minimizeWindowAction;
+    private final WindowAction maximizeWindowAction;
+    private final WindowAction closeWindowAction;
 
     public RestServer(int port) {
+        this(port, () -> {}, () -> {}, () -> {});
+    }
+
+    public RestServer(
+            int port,
+            WindowAction minimizeWindowAction,
+            WindowAction maximizeWindowAction,
+            WindowAction closeWindowAction) {
         this.port = port;
+        this.minimizeWindowAction = minimizeWindowAction;
+        this.maximizeWindowAction = maximizeWindowAction;
+        this.closeWindowAction = closeWindowAction;
         try {
             this.msAuth = new MicrosoftAuth();
             this.minecraftLauncher = new MinecraftLauncherService(msAuth.getClientId());
@@ -313,6 +332,48 @@ public class RestServer {
                 ctx.status(400).contentType("application/json").result(json.toString());
             } catch (Exception e) {
                 logError("Stopping instance failed", e);
+                JSONObject json = new JSONObject();
+                json.put("success", false);
+                json.put("error", e.getMessage());
+                ctx.status(500).contentType("application/json").result(json.toString());
+            }
+        });
+
+        app.post("/api/window/minimize", ctx -> {
+            try {
+                minimizeWindowAction.execute();
+                JSONObject json = new JSONObject();
+                json.put("success", true);
+                ctx.contentType("application/json").result(json.toString());
+            } catch (Exception e) {
+                JSONObject json = new JSONObject();
+                json.put("success", false);
+                json.put("error", e.getMessage());
+                ctx.status(500).contentType("application/json").result(json.toString());
+            }
+        });
+
+        app.post("/api/window/maximize", ctx -> {
+            try {
+                maximizeWindowAction.execute();
+                JSONObject json = new JSONObject();
+                json.put("success", true);
+                ctx.contentType("application/json").result(json.toString());
+            } catch (Exception e) {
+                JSONObject json = new JSONObject();
+                json.put("success", false);
+                json.put("error", e.getMessage());
+                ctx.status(500).contentType("application/json").result(json.toString());
+            }
+        });
+
+        app.post("/api/window/close", ctx -> {
+            try {
+                closeWindowAction.execute();
+                JSONObject json = new JSONObject();
+                json.put("success", true);
+                ctx.contentType("application/json").result(json.toString());
+            } catch (Exception e) {
                 JSONObject json = new JSONObject();
                 json.put("success", false);
                 json.put("error", e.getMessage());

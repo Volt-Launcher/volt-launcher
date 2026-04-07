@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { onBeforeUnmount, onMounted, watch } from 'vue';
 import { useLauncher } from '@/composables/useLauncher';
 import AuroraBackground from '@/components/AuroraBackground.vue';
 import TopBar from '@/components/TopBar.vue';
@@ -12,12 +12,52 @@ import DiscoverTab from '@/components/tabs/DiscoverTab.vue';
 import SettingsTab from '@/components/tabs/SettingsTab.vue';
 const { init, cleanup, accentColor } = useLauncher();
 
-const themeVars = computed(() => ({
-  '--primary': accentColor.value,
-  '--secondary': '#6c63ff',
-  '--violet': '#8b5cf6',
-  '--accent': '#00ffcc',
-}));
+function hexToRgb(hex: string) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+function hexToHsl(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h * 360, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  h = ((h % 360) + 360) % 360;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * c).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function deriveSecondary(hex: string): string {
+  const [h, s, l] = hexToHsl(hex);
+  return hslToHex(h + 40, Math.min(s * 0.85, 1), Math.min(l * 1.05, 0.65));
+}
+
+function applyAccentColor(hex: string) {
+  const root = document.documentElement;
+  root.style.setProperty('--primary', hex);
+  root.style.setProperty('--primary-rgb', hexToRgb(hex));
+  root.style.setProperty('--secondary', deriveSecondary(hex));
+}
+
+watch(accentColor, (c) => applyAccentColor(c), { immediate: true });
 
 onMounted(() => {
   init();
@@ -28,8 +68,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div
-    class="relative flex h-full w-full flex-col overflow-hidden bg-[#030912] text-[rgba(255,255,255,0.96)]"
-    :style="themeVars"
+    class="relative flex h-full w-full flex-col overflow-hidden bg-[var(--app-bg)] text-[var(--app-fg)]"
   >
     <AuroraBackground />
     <TopBar />

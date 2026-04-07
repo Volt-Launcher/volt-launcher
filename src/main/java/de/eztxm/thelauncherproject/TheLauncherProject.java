@@ -10,13 +10,9 @@ import org.cef.handler.CefLifeSpanHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.event.*;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TheLauncherProject {
 
@@ -24,9 +20,19 @@ public class TheLauncherProject {
 
     private static volatile RestServer restServer;
     private static volatile CefApp cefApp;
+    private static volatile JFrame mainFrame;
+    private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
 
-    public static void main(String[] args) throws Exception {
-        restServer = new RestServer(7070);
+    static void main(String[] args) throws Exception {
+        registerShutdownHook();
+        startParentExitWatcher(resolveParentPid(args));
+
+        restServer = new RestServer(
+                7070,
+                TheLauncherProject::minimizeMainWindow,
+                TheLauncherProject::toggleMaximizeMainWindow,
+                TheLauncherProject::requestCloseMainWindow
+        );
         restServer.start();
 
         String[] cefArgs = Arrays.copyOf(args, args.length + 1);
@@ -45,11 +51,13 @@ public class TheLauncherProject {
         });
     }
 
-    private static JFrame buildMainWindow(CefApp app) {
+    private static void buildMainWindow(CefApp app) {
         JFrame frame = new JFrame("TheLauncherProject");
+        mainFrame = frame;
         frame.setSize(1280, 720);
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        frame.setUndecorated(true);
         frame.getContentPane().setBackground(APP_BG);
 
         CefClient client = app.createClient();
@@ -58,7 +66,8 @@ public class TheLauncherProject {
         CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
         Component browserUI = browser.getUIComponent();
 
-        // Hintergrundfarbe setzen damit Flackern beim Resize dunkler statt weiß ist
+        makeDraggable(frame, browserUI, 50);
+
         if (browserUI instanceof JComponent jc) {
             jc.setBackground(APP_BG);
             jc.setOpaque(true);
@@ -72,8 +81,6 @@ public class TheLauncherProject {
             }
         });
 
-        // Resize-Events debounced weitermelden — verhindert konstantes
-        // Neu-Rendern bei jedem einzelnen Pixel während des Ziehens
         browserUI.addComponentListener(new ComponentAdapter() {
             private Timer debounce;
 
@@ -106,7 +113,45 @@ public class TheLauncherProject {
         });
 
         frame.setVisible(true);
-        return frame;
+    }
+
+    private static void makeDraggable(JFrame frame, Component dragComponent, int dragHeight) {
+        final int[] mouseX = new int[1];
+        final int[] mouseY = new int[1];
+        final boolean[] dragging = new boolean[1];
+
+        dragComponent.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.getY() > dragHeight) {
+                    dragging[0] = false;
+                    return;
+                }
+
+                mouseX[0] = e.getXOnScreen() - frame.getX();
+                mouseY[0] = e.getYOnScreen() - frame.getY();
+                dragging[0] = true;
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                dragging[0] = false;
+            }
+        });
+
+        dragComponent.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                if (!dragging[0]) {
+                    return;
+                }
+
+                frame.setLocation(
+                        e.getXOnScreen() - mouseX[0],
+                        e.getYOnScreen() - mouseY[0]
+                );
+            }
+        });
     }
 
     private static void attachPopupHandler(CefClient client, JFrame owner) {
@@ -144,12 +189,99 @@ public class TheLauncherProject {
     }
 
     private static void shutdown() {
+        shutdown(true);
+    }
+
+    private static void minimizeMainWindow() {
+        SwingUtilities.invokeLater(() -> {
+            JFrame frame = mainFrame;
+            if (frame == null || !frame.isDisplayable()) {
+                return;
+            }
+
+            frame.setState(Frame.ICONIFIED);
+        });
+    }
+
+    private static void toggleMaximizeMainWindow() {
+        SwingUtilities.invokeLater(() -> {
+            JFrame frame = mainFrame;
+            if (frame == null || !frame.isDisplayable()) {
+                return;
+            }
+
+            int state = frame.getExtendedState();
+            boolean isMaximized = (state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH;
+            frame.setExtendedState(isMaximized ? Frame.NORMAL : (state | Frame.MAXIMIZED_BOTH));
+        });
+    }
+
+    private static void requestCloseMainWindow() {
+        Thread.ofVirtual().start(() -> {
+            try {
+                Thread.sleep(75);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            shutdown();
+        });
+    }
+
+    private static void shutdown(boolean exitJvm) {
+        if (!SHUTDOWN_STARTED.compareAndSet(false, true)) {
+            return;
+        }
+
+        JFrame frame = mainFrame;
+        if (frame != null && frame.isDisplayable()) {
+            SwingUtilities.invokeLater(frame::dispose);
+        }
+
         try {
             if (restServer != null) restServer.stop();
         } catch (Exception _) {}
         try {
             if (cefApp != null) cefApp.dispose();
         } catch (Exception _) {}
-        System.exit(0);
+
+        if (exitJvm) {
+            System.exit(0);
+        }
+    }
+
+    private static void registerShutdownHook() {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> shutdown(false), "launcher-shutdown-hook"));
+    }
+
+    private static long resolveParentPid(String[] args) {
+        for (String arg : args) {
+            if (!arg.startsWith("--parent-pid=")) {
+                continue;
+            }
+
+            try {
+                return Long.parseLong(arg.substring("--parent-pid=".length()));
+            } catch (NumberFormatException ignored) {
+                return -1;
+            }
+        }
+
+        return ProcessHandle.current()
+                .parent()
+                .map(ProcessHandle::pid)
+                .orElse(-1L);
+    }
+
+    private static void startParentExitWatcher(long parentPid) {
+        if (parentPid <= 0) {
+            return;
+        }
+
+        ProcessHandle parent = ProcessHandle.of(parentPid).orElse(null);
+        if (parent == null) {
+            return;
+        }
+
+        parent.onExit().thenRun(TheLauncherProject::shutdown);
     }
 }

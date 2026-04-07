@@ -1,22 +1,19 @@
 <script setup lang="ts">
-import {Icon} from "@iconify/vue";
-import {useLauncher} from "@/composables/useLauncher";
+import { Icon } from "@iconify/vue";
+import { useLauncher } from "@/composables/useLauncher";
+import SkinModel from "@/components/SkinModel.vue";
 
 const {
   authData,
-  instances,
   isAuthenticating,
   isLaunching,
   activeTab,
   selectedInstance,
-  runningInstancesCount,
-  playerSkinUrl,
-  playerSkinFallback,
+  playerSkinTextureUrl,
   formatRelativeDate,
   handleLogin,
   handleLaunch,
   handleStop,
-  handleImgError,
 } = useLauncher();
 
 const newsItems = [
@@ -26,9 +23,7 @@ const newsItems = [
     description: "Neues Top-Nav-Design, Discover-Tab und Status Bar jetzt live.",
     date: "05. April 2026",
     badge: "UPDATE",
-    badgeClasses:
-        "border border-cyan-500/30 bg-cyan-500/20 text-cyan-400",
-    backgroundClass: "bg-slate-900",
+    badgeClass: "border-[var(--accent-border)] bg-[var(--accent-bg)] text-[var(--primary)]",
   },
   {
     emoji: "✨",
@@ -36,9 +31,7 @@ const newsItems = [
     description: "Animierte Cloaks und Easter Skins – nur für kurze Zeit!",
     date: "03. April 2026",
     badge: "SHOP",
-    badgeClasses:
-        "border border-violet-500/30 bg-violet-500/20 text-violet-400",
-    backgroundClass: "bg-violet-950",
+    badgeClass: "border-[var(--accent-border-soft)] bg-[rgba(139,92,246,0.15)] text-[var(--violet)]",
   },
   {
     emoji: "🎉",
@@ -46,160 +39,105 @@ const newsItems = [
     description: "Limitierte Belohnungen bis Ende April.",
     date: "01. April 2026",
     badge: "EVENT",
-    badgeClasses:
-        "border border-emerald-500/30 bg-emerald-500/20 text-emerald-400",
-    backgroundClass: "bg-emerald-950",
+    badgeClass: "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--accent)]",
   },
 ] as const;
 </script>
 
 <template>
-  <div
-      class="flex-1 overflow-hidden"
-      :class="activeTab === 'home' ? 'flex' : 'hidden'"
-  >
-    <div
-        class="grid h-full min-w-0 grid-cols-5 gap-6 overflow-hidden px-4 py-5 md:px-6"
-    >
-      <!-- LEFT -->
-      <div
-          class="relative col-span-4 min-w-0 flex flex-col items-center justify-between overflow-hidden rounded-2xl bg-slate-900 p-6"
-      >
-        <div
-            class="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-slate-950 to-transparent"
-        />
+  <div class="flex-1 overflow-hidden" :class="activeTab === 'home' ? 'flex' : 'hidden'">
+    <div class="flex h-full w-full gap-4 overflow-hidden px-4 py-4 md:px-6">
 
+      <!-- LEFT: skin hero -->
+      <div
+        class="relative col-span-4 flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--surface-panel)]">
+
+        <!-- ambient glow at bottom -->
         <div
-            class="relative z-10 flex flex-1 flex-col items-center justify-center"
-        >
-          <div
-              class="mb-5 text-center text-2xl font-bold tracking-widest text-cyan-400"
-          >
-            {{ authData ? authData.username.toUpperCase() : "SPIELER" }}
+          class="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[var(--app-bg)] via-[rgba(3,9,18,.55)] to-transparent" />
+        <div
+          class="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-[radial-gradient(ellipse_80%_100%_at_50%_100%,rgba(var(--primary-rgb),.07),transparent)]" />
+
+        <!-- skin model + username -->
+        <div class="relative z-10 flex flex-1 flex-col items-center justify-center overflow-hidden">
+          <div class="mb-1 text-[length:var(--text-xl)] font-bold tracking-[0.14em] text-white">
+            {{ authData ? authData.username.toUpperCase() : "PLAYER" }}
           </div>
 
-          <img
-              class="h-64 cursor-pointer object-contain transition-transform duration-300 hover:scale-105"
-              :src="playerSkinUrl"
-              :data-fallback-src="playerSkinFallback"
-              alt="Skin"
-              @error="handleImgError"
-              @click="activeTab = 'skins'"
-          />
-
-          <div class="mt-2 text-xs tracking-widest text-white/40">
-            {{ selectedInstance?.running ? selectedInstance.name : "HUGOSMP.NET" }}
+          <div class="relative flex items-center justify-center">
+            <div class="pointer-events-none absolute inset-x-6 top-10 bottom-12 rounded-[42%] bg-[radial-gradient(circle_at_58%_38%,rgba(255,255,255,0.08),rgba(7,16,30,0.24)_34%,rgba(3,9,18,0.02)_72%,transparent_100%)] blur-3xl" />
+            <div class="pointer-events-none absolute bottom-5 right-8 h-28 w-64 rounded-full bg-[radial-gradient(ellipse_72%_62%_at_56%_56%,rgba(0,0,0,0.42),rgba(3,9,18,0.22)_58%,transparent_76%)] blur-2xl" />
+            <div class="pointer-events-none absolute bottom-8 right-12 h-20 w-44 rounded-full bg-[radial-gradient(ellipse_72%_72%_at_50%_50%,var(--accent-bg),transparent_78%)] blur-xl" />
+            <SkinModel :skin="playerSkinTextureUrl" :width="340" :height="420" animation="chill" :interactive="false" />
           </div>
         </div>
 
+        <!-- launch bar -->
         <div
-            class="relative z-10 flex w-full max-w-3xl flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/80 px-5 py-3 backdrop-blur-xl"
-        >
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-sm font-bold text-white">
-              {{
-                selectedInstance
-                    ? selectedInstance.name
-                    : authData
-                        ? "Kein Profil ausgewählt"
-                        : "Bitte anmelden"
-              }}
-            </div>
+          class="absolute left-1/2 transform -translate-x-1/2 bottom-4 z-10 mb-16 flex flex-col items-center gap-2">
 
-            <div class="mt-1 flex flex-wrap gap-3 text-xs text-white/60">
-              <span v-if="selectedInstance" class="inline-flex items-center gap-1">
-                <Icon icon="lucide:layers" class="size-3"/>
-                {{ selectedInstance.versionId }}
-              </span>
+          <button v-if="!authData" type="button"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-5 py-2.5 text-[length:var(--text-sm)] font-bold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)] hover:shadow-[var(--shadow-accent-md)] disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="isAuthenticating" @click="handleLogin">
+            <Icon icon="lucide:log-in" class="size-[11px]" />{{ isAuthenticating ? "WAITING...." : "LOGIN" }}
+          </button>
 
-              <span v-if="selectedInstance" class="inline-flex items-center gap-1">
-                <Icon icon="lucide:cpu" class="size-3"/>
-                Java {{ selectedInstance.javaMajorVersion }}
-              </span>
+          <button v-else-if="selectedInstance?.running" type="button"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-5 py-2.5 text-[length:var(--text-sm)] font-bold tracking-[0.07em] text-[var(--danger-text)] transition-all duration-200 hover:shadow-[var(--shadow-danger-xs)] disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="isLaunching" @click="handleStop">
+            <Icon icon="lucide:square" class="size-[11px]" />STOP
+          </button>
 
-              <span v-if="selectedInstance" class="inline-flex items-center gap-1">
-                <Icon icon="lucide:clock" class="size-3"/>
-                {{ formatRelativeDate(selectedInstance.lastPlayedAt) }}
-              </span>
-            </div>
+          <button v-else-if="selectedInstance" type="button"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--accent-border-strong)] bg-[var(--primary)] px-5 py-2.5 text-[length:var(--text-sm)] font-bold tracking-[0.07em] text-white shadow-[var(--shadow-accent-md)] transition-all duration-200 hover:shadow-[var(--shadow-accent-lg)] disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="isLaunching || !selectedInstance" @click="handleLaunch">
+            <Icon icon="lucide:play" class="size-[11px]" />{{ !selectedInstance ? "NO PROFILE SELECTED" : isLaunching ?
+              "STARTING..." : "LAUNCH" }}
+          </button>
+
+          <div v-if="selectedInstance" class="mt-0.5 flex flex-wrap gap-3 text-[length:var(--text-xs)] text-white/50  rounded-xl border border-white/8 bg-[var(--surface-panel-strong)] px-4 py-3 backdrop-blur-xl">
+            <span v-if="selectedInstance" class="inline-flex items-center gap-1">
+              <Icon icon="lucide:layers" class="size-[11px]" />{{ selectedInstance?.versionId || "Version unbekannt" }}
+            </span>
+            <span v-if="selectedInstance" class="inline-flex items-center gap-1">
+              <Icon icon="lucide:cpu" class="size-[11px]" />Java {{ selectedInstance?.javaMajorVersion || "N/A" }}
+            </span>
+            <span v-if="selectedInstance" class="inline-flex items-center gap-1">
+              <Icon icon="lucide:clock" class="size-[11px]" />{{ formatRelativeDate(selectedInstance?.lastPlayedAt) || "N/A" }}
+            </span>
           </div>
 
-          <button
-              v-if="selectedInstance?.running"
-              class="rounded-lg bg-cyan-500 px-6 py-3 text-sm font-bold text-white"
-              :disabled="isLaunching"
-              @click="handleStop"
-          >
-            STOPP
-          </button>
-
-          <button
-              v-else-if="authData && selectedInstance"
-              class="rounded-lg bg-cyan-500 px-6 py-3 text-sm font-bold text-white"
-              :disabled="isLaunching"
-              @click="handleLaunch"
-          >
-            LAUNCH
-          </button>
-
-          <button
-              v-else-if="!authData"
-              class="rounded-lg bg-cyan-500 px-6 py-3 text-sm font-bold text-white"
-              :disabled="isAuthenticating"
-              @click="handleLogin"
-          >
-            LOGIN
-          </button>
         </div>
       </div>
 
-      <!-- RIGHT SIDEBAR -->
+      <!-- RIGHT: news sidebar -->
       <div
-          class="col-span-1 flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/80 backdrop-blur-xl"
-      >
-        <div class="flex items-center gap-2 border-b border-white/10 px-4 py-4">
-          <Icon icon="lucide:newspaper" class="size-4 text-cyan-400"/>
-          <h3 class="text-xs font-bold tracking-widest text-white/60">
-            NEWS & UPDATES
-          </h3>
+        class="w-150 flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--surface-panel)]">
+        <div class="flex shrink-0 items-center gap-2 border-b border-white/7 px-4 py-3">
+          <Icon icon="lucide:newspaper" class="size-[13px] text-[var(--primary)]" />
+          <span class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/50">NEWS, UPDATES &
+            BLOG</span>
         </div>
 
-        <div class="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
-          <div
-              v-for="item in newsItems"
-              :key="item.title"
-              class="overflow-hidden rounded-xl border border-white/10 bg-slate-900"
-          >
-            <div
-                class="flex h-28 items-center justify-center text-5xl"
-                :class="item.backgroundClass"
-            >
+        <div class="flex flex-1 flex-col gap-2 overflow-y-auto p-2.5">
+          <div v-for="item in newsItems" :key="item.title"
+            class="overflow-hidden rounded-xl border border-white/8 bg-[var(--surface-panel-strong)] transition-all duration-200 hover:border-white/15">
+            <div class="flex h-20 items-center justify-center text-4xl bg-[var(--surface-panel-muted)]">
               {{ item.emoji }}
             </div>
-
-            <div class="p-3">
-              <div
-                  class="mb-1 inline-flex rounded px-2 py-1 text-xs font-bold"
-                  :class="item.badgeClasses"
-              >
+            <div class="p-2.5">
+              <div class="mb-1.5 inline-flex rounded-[5px] border px-1.5 py-0.5 text-[length:var(--text-2xs)] font-bold"
+                :class="item.badgeClass">
                 {{ item.badge }}
               </div>
-
-              <h4 class="text-sm font-semibold text-white">
-                {{ item.title }}
-              </h4>
-
-              <p class="mt-1 text-xs text-white/60">
-                {{ item.description }}
-              </p>
-
-              <div class="mt-2 text-xs text-white/40">
-                {{ item.date }}
-              </div>
+              <div class="text-[length:var(--text-base-plus)] font-semibold text-white">{{ item.title }}</div>
+              <p class="mt-0.5 text-[length:var(--text-xs)] leading-[1.5] text-white/55">{{ item.description }}</p>
+              <div class="mt-1.5 text-[length:var(--text-2xs)] text-white/30">{{ item.date }}</div>
             </div>
           </div>
         </div>
       </div>
+
     </div>
   </div>
 </template>
