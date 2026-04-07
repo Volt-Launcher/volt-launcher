@@ -14,9 +14,9 @@ import java.util.concurrent.TimeUnit;
 
 public final class OAuthClient {
 
-    private static final String AUTHORIZE_ENDPOINT = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
-    private static final String TOKEN_ENDPOINT     = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
-    private static final String SCOPE              = "XboxLive.signin offline_access";
+    private static final String AUTHORIZE_ENDPOINT = "https://login.live.com/oauth20_authorize.srf";
+    private static final String TOKEN_ENDPOINT     = "https://login.live.com/oauth20_token.srf";
+    private static final String SCOPE              = "XboxLive.signin XboxLive.offline_access";
 
     private final String clientId;
     private final String redirectUri;
@@ -67,13 +67,13 @@ public final class OAuthClient {
     }
 
     private TokenResponse parseTokenResponse(JSONObject json, String fallbackRefresh) {
-        long expiresIn   = json.optLong("expires_in", 3600L);
+        long expiresIn    = json.optLong("expires_in", 3600L);
         String newRefresh = json.optString("refresh_token", "");
-        String storedRefresh = !newRefresh.isBlank() ? newRefresh
+        String stored     = !newRefresh.isBlank() ? newRefresh
                 : (fallbackRefresh != null ? fallbackRefresh : "");
         return new TokenResponse(
                 json.getString("access_token"),
-                storedRefresh,
+                stored,
                 System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(expiresIn));
     }
 
