@@ -10,6 +10,9 @@ import io.javalin.http.staticfiles.Location;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.awt.*;
+import java.net.URI;
+
 public class RestServer {
 
     @FunctionalInterface
@@ -163,6 +166,9 @@ public class RestServer {
         app.get("/api/auth/login", ctx -> {
             try {
                 MicrosoftAuth.StartAuthResult start = msAuth.startAuthFlow();
+                if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                    Desktop.getDesktop().browse(URI.create(start.url()));
+                }
                 JSONObject json = new JSONObject();
                 json.put("success", true);
                 json.put("state", start.state());

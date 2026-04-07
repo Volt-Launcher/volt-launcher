@@ -32,10 +32,7 @@ public final class JcefBootstrap {
         return startCef(installDir, nativesDir, args);
     }
 
-    // ──────────────────────────── Installation ────────────────────────────
-
     private static void ensureInstalled(Path installDir) throws Exception {
-        // Marker-Check: rekursiv nach libjcef.so suchen statt im Root
         if (isInstalled(installDir)) {
             System.out.println("[JCEF] Bereits installiert: " + installDir);
             return;
