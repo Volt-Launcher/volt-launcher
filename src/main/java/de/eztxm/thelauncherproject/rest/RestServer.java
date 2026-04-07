@@ -2,6 +2,7 @@ package de.eztxm.thelauncherproject.rest;
 
 import de.eztxm.thelauncherproject.auth.AuthFlowStatus;
 import de.eztxm.thelauncherproject.auth.AuthResult;
+import de.eztxm.thelauncherproject.auth.MinecraftAccountSession;
 import de.eztxm.thelauncherproject.auth.PendingAuth;
 import de.eztxm.thelauncherproject.launcher.*;
 import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth;
@@ -54,7 +55,6 @@ public class RestServer {
         }
     }
 
-    // Wird direkt von TheLauncherProject aufgerufen wenn JCEF den Redirect abfängt
     public void submitAuthCode(String code, String state) {
         Thread.ofVirtual().start(() -> {
             try {
@@ -66,9 +66,7 @@ public class RestServer {
     }
 
     public void failAuth(String state, String message) {
-        try {
-            msAuth.failAuthFlow(state, message);
-        } catch (Exception ignored) {}
+        try { msAuth.failAuthFlow(state, message); } catch (Exception ignored) {}
     }
 
     public void start() {
@@ -184,6 +182,73 @@ public class RestServer {
             }
         });
 
+        app.post("/api/instances/{name}/launch", ctx -> {
+            String instanceName = ctx.pathParam("name");
+            try {
+                MinecraftAccountSession session = msAuth.getLaunchSession();
+                minecraftLauncher.launchInstanceAsync(session, instanceName);
+                JSONObject json = new JSONObject();
+                json.put("success", true);
+                json.put("instanceName", instanceName);
+                json.put("status", "installing");
+                ctx.contentType("application/json").result(json.toString());
+            } catch (IllegalStateException e) {
+                JSONObject json = new JSONObject();
+                json.put("success", false);
+                json.put("error", e.getMessage());
+                ctx.status(400).contentType("application/json").result(json.toString());
+            } catch (Exception e) {
+                logError("Minecraft launch failed", e);
+                JSONObject json = new JSONObject();
+                json.put("success", false);
+                json.put("error", e.getMessage());
+                ctx.status(500).contentType("application/json").result(json.toString());
+            }
+        });
+
+        // Frontend pollt diesen Endpoint um den Launch-Fortschritt zu verfolgen
+        app.get("/api/instances/{name}/launch-status", ctx -> {
+            String instanceName = ctx.pathParam("name");
+            MinecraftLauncherService.LaunchState state = minecraftLauncher.getLaunchState(instanceName);
+            JSONObject json = new JSONObject();
+            json.put("success", true);
+            json.put("phase", state.phase().name().toLowerCase());
+            if (state.message() != null) json.put("message", state.message());
+            if (state.result() != null) {
+                LaunchResult r = state.result();
+                json.put("instanceName",     r.instanceName());
+                json.put("version",          r.versionId());
+                json.put("pid",              r.pid());
+                json.put("logFile",          r.logFile());
+                json.put("javaMajorVersion", r.javaMajorVersion());
+                json.put("javaExecutable",   r.javaExecutable());
+            }
+            ctx.contentType("application/json").result(json.toString());
+        });
+
+        app.post("/api/instances/{name}/stop", ctx -> {
+            String instanceName = ctx.pathParam("name");
+            try {
+                boolean stopped = minecraftLauncher.stopInstance(instanceName);
+                JSONObject json = new JSONObject();
+                json.put("success",      true);
+                json.put("instanceName", instanceName);
+                json.put("stopped",      stopped);
+                ctx.contentType("application/json").result(json.toString());
+            } catch (IllegalStateException e) {
+                JSONObject json = new JSONObject();
+                json.put("success", false);
+                json.put("error",   e.getMessage());
+                ctx.status(400).contentType("application/json").result(json.toString());
+            } catch (Exception e) {
+                logError("Stopping instance failed", e);
+                JSONObject json = new JSONObject();
+                json.put("success", false);
+                json.put("error",   e.getMessage());
+                ctx.status(500).contentType("application/json").result(json.toString());
+            }
+        });
+
         app.get("/api/auth/login", ctx -> {
             try {
                 MicrosoftAuth.StartAuthResult start = msAuth.startAuthFlow();
@@ -218,32 +283,28 @@ public class RestServer {
         app.get("/api/auth/status", ctx -> {
             String state = ctx.queryParam("state");
             JSONObject json = new JSONObject();
-
             if (state == null || state.isBlank()) {
                 json.put("success", false);
-                json.put("status", "error");
-                json.put("error", "Missing state parameter");
+                json.put("status",  "error");
+                json.put("error",   "Missing state parameter");
                 ctx.status(400).contentType("application/json").result(json.toString());
                 return;
             }
-
             PendingAuth pending = msAuth.checkAuthStatus(state);
             if (pending == null) {
                 json.put("success", false);
-                json.put("status", "expired");
-                json.put("error", "Authentication session expired or was already completed");
+                json.put("status",  "expired");
+                json.put("error",   "Authentication session expired or was already completed");
                 ctx.contentType("application/json").result(json.toString());
                 return;
             }
-
             AuthFlowStatus status = pending.status();
             if (status == AuthFlowStatus.PENDING) {
                 json.put("success", true);
-                json.put("status", "pending");
+                json.put("status",  "pending");
                 ctx.contentType("application/json").result(json.toString());
                 return;
             }
-
             if (status == AuthFlowStatus.SUCCESS && pending.result() != null) {
                 AuthResult result = pending.result();
                 json.put("success",  true);
@@ -254,63 +315,11 @@ public class RestServer {
                 ctx.contentType("application/json").result(json.toString());
                 return;
             }
-
             json.put("success", false);
             json.put("status",  "error");
             json.put("error",   pending.errorMessage() != null ? pending.errorMessage() : "Authentication failed");
             msAuth.clearAuthState(state);
             ctx.contentType("application/json").result(json.toString());
-        });
-
-        app.post("/api/instances/{name}/launch", ctx -> {
-            String instanceName = ctx.pathParam("name");
-            try {
-                LaunchResult result = minecraftLauncher.launchInstance(msAuth.getLaunchSession(), instanceName);
-                JSONObject json = new JSONObject();
-                json.put("success",          true);
-                json.put("instanceName",     result.instanceName());
-                json.put("version",          result.versionId());
-                json.put("pid",              result.pid());
-                json.put("command",          result.launchCommand());
-                json.put("logFile",          result.logFile());
-                json.put("javaMajorVersion", result.javaMajorVersion());
-                json.put("javaExecutable",   result.javaExecutable());
-                ctx.contentType("application/json").result(json.toString());
-            } catch (IllegalStateException e) {
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error",   e.getMessage());
-                ctx.status(400).contentType("application/json").result(json.toString());
-            } catch (Exception e) {
-                logError("Minecraft launch failed", e);
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error",   e.getMessage());
-                ctx.status(500).contentType("application/json").result(json.toString());
-            }
-        });
-
-        app.post("/api/instances/{name}/stop", ctx -> {
-            String instanceName = ctx.pathParam("name");
-            try {
-                boolean stopped = minecraftLauncher.stopInstance(instanceName);
-                JSONObject json = new JSONObject();
-                json.put("success",      true);
-                json.put("instanceName", instanceName);
-                json.put("stopped",      stopped);
-                ctx.contentType("application/json").result(json.toString());
-            } catch (IllegalStateException e) {
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error",   e.getMessage());
-                ctx.status(400).contentType("application/json").result(json.toString());
-            } catch (Exception e) {
-                logError("Stopping instance failed", e);
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error",   e.getMessage());
-                ctx.status(500).contentType("application/json").result(json.toString());
-            }
         });
 
         app.post("/api/window/minimize", ctx -> {
@@ -348,7 +357,9 @@ public class RestServer {
         json.put("javaComponent",    instance.javaComponent());
 
         RunningInstanceStatus running = minecraftLauncher.getRunningInstanceStatus(instance.name());
+        MinecraftLauncherService.LaunchState state = minecraftLauncher.getLaunchState(instance.name());
         json.put("running", running != null && running.alive());
+        json.put("launchPhase", state.phase().name().toLowerCase());
         if (running != null) {
             json.put("pid",                     running.pid());
             json.put("startedAt",               running.startedAt());

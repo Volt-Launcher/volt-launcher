@@ -2,10 +2,11 @@ import { computed, ref, watch, type WatchStopHandle } from "vue";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 export interface AuthData { uuid: string; username: string; }
-export interface LauncherInstance { name: string; slug: string; versionId: string; versionType: string; createdAt: number; lastPlayedAt: number; javaMajorVersion: number; javaComponent: string; running: boolean; pid?: number; startedAt?: number; javaExecutable?: string; runningJavaMajorVersion?: number; }
+export interface LauncherInstance { name: string; slug: string; versionId: string; versionType: string; createdAt: number; lastPlayedAt: number; javaMajorVersion: number; javaComponent: string; running: boolean; launchPhase?: string; pid?: number; startedAt?: number; javaExecutable?: string; runningJavaMajorVersion?: number; }
 export interface AvailableVersion { id: string; type: string; releaseTime: string; }
 export type MainTab = "home" | "profiles" | "skins" | "discover" | "settings";
 export interface JavaRuntime { version: number; path: string; }
+export type LaunchPhase = "idle" | "installing" | "launching" | "running" | "failed";
 
 // ── Reactive state ──────────────────────────────────────────────────────────
 const authData = ref<AuthData | null>(null);
@@ -19,6 +20,8 @@ const includeBetas = ref(false);
 const includeAlphas = ref(false);
 const isAuthenticating = ref(false);
 const isLaunching = ref(false);
+const launchPhase = ref<LaunchPhase>("idle");
+const launchMessage = ref<string | null>(null);
 const isCreatingInstance = ref(false);
 const isLoadingInstances = ref(false);
 const isLoadingVersions = ref(false);
@@ -50,6 +53,7 @@ const maxMemory = ref(4);
 let authState = "";
 let authPollInterval: ReturnType<typeof window.setInterval> | null = null;
 let instancePollInterval: ReturnType<typeof window.setInterval> | null = null;
+let launchPollInterval: ReturnType<typeof window.setInterval> | null = null;
 let versionsUnwatch: WatchStopHandle | null = null;
 
 // ── Computed ────────────────────────────────────────────────────────────────
@@ -71,7 +75,7 @@ const filteredInstances = computed(() => profileFilter.value === "ALL" ? instanc
 // ── Helpers ─────────────────────────────────────────────────────────────────
 export const versionEmoji = (t: string) => ({ release: "📦", snapshot: "🔬", old_beta: "⚗️", old_alpha: "⚔️" }[t] ?? "🎮");
 export const versionGradient = (t: string) => ({ release: "linear-gradient(135deg,#0d3a18,#184d22)", snapshot: "linear-gradient(135deg,#0a2040,#001535)", old_beta: "linear-gradient(135deg,#3a1a08,#5a2a10)", old_alpha: "linear-gradient(135deg,#4d0f0f,#7a1a1a)" }[t] ?? "linear-gradient(135deg,#0a1535,#122050)");
-export const formatRelativeDate = (ts: number) => { if (!ts) return "Nie gespielt"; const d = Date.now() - ts, m = Math.floor(d / 6e4), h = Math.floor(d / 36e5), dy = Math.floor(d / 864e5), w = Math.floor(dy / 7), mo = Math.floor(dy / 30); if (m < 1) return "gerade eben"; if (m < 60) return `vor ${m}min`; if (m < 60) return `vor ${m}min`; if (h < 24) return `vor ${h}h`; if (dy < 7) return `vor ${dy}T`; if (w < 5) return `vor ${w}W`; return `vor ${mo}M`; };
+export const formatRelativeDate = (ts: number) => { if (!ts) return "Nie gespielt"; const d = Date.now() - ts, m = Math.floor(d / 6e4), h = Math.floor(d / 36e5), dy = Math.floor(d / 864e5), w = Math.floor(dy / 7), mo = Math.floor(dy / 30); if (m < 1) return "gerade eben"; if (m < 60) return `vor ${m}min`; if (h < 24) return `vor ${h}h`; if (dy < 7) return `vor ${dy}T`; if (w < 5) return `vor ${w}W`; return `vor ${mo}M`; };
 export const formatVersionType = (t: string) => ({ release: "Release", snapshot: "Snapshot", old_beta: "Beta", old_alpha: "Alpha" }[t] ?? t);
 export const formatReleaseTime = (rt: string) => { if (!rt) return "Unbekannt"; const d = new Date(rt); return Number.isNaN(d.getTime()) ? rt : d.toLocaleDateString("de-DE"); };
 export const handleImgError = (event: Event) => { const img = event.target as HTMLImageElement; const fb = img.dataset.fallbackSrc; if (fb && img.src !== fb) img.src = fb; };
@@ -112,19 +116,13 @@ const handleLogin = async () => {
     try {
         isAuthenticating.value = true;
         error.value = null;
-
-        // Backend öffnet das Minecraft-gebrandete Login-Popup und gibt uns den state zurück
         const d = await apiFetch<{ success: boolean; state?: string; url?: string; error?: string }>("/api/auth/login");
-
         if (!d.success || !d.state) {
             error.value = d.error ?? "Authentifizierung fehlgeschlagen";
             isAuthenticating.value = false;
             return;
         }
-
         authState = d.state;
-
-        // Polling bis Microsoft zurück zu /callback redirectet und Backend den Code verarbeitet hat
         authPollInterval = window.setInterval(() => { void pollAuthStatus(); }, 1500);
     } catch (e) {
         error.value = e instanceof Error ? e.message : "Unbekannter Fehler";
@@ -203,21 +201,70 @@ const handleCreateInstance = async () => {
     } finally { isCreatingInstance.value = false; }
 };
 
+const stopLaunchPolling = () => {
+    if (launchPollInterval !== null) { window.clearInterval(launchPollInterval); launchPollInterval = null; }
+};
+
+const pollLaunchStatus = async (instanceName: string) => {
+    try {
+        const d = await apiFetch<{
+            success: boolean; phase: LaunchPhase; message?: string;
+            instanceName?: string; version?: string; pid?: number;
+            javaMajorVersion?: number; error?: string;
+        }>(`/api/instances/${encodeURIComponent(instanceName)}/launch-status`);
+
+        launchPhase.value = d.phase;
+        launchMessage.value = d.message ?? null;
+
+        if (d.phase === "running") {
+            isLaunching.value = false;
+            launcherMessage.value = [
+                d.instanceName ?? instanceName,
+                d.version && `mit ${d.version}`,
+                d.javaMajorVersion && `Java ${d.javaMajorVersion}`,
+                d.pid && `PID ${d.pid}`,
+            ].filter(Boolean).join(" ") + " gestartet.";
+            stopLaunchPolling();
+            await loadInstances();
+        } else if (d.phase === "failed") {
+            isLaunching.value = false;
+            error.value = d.message ?? "Launch fehlgeschlagen";
+            stopLaunchPolling();
+        }
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Launch-Status konnte nicht abgefragt werden";
+        isLaunching.value = false;
+        stopLaunchPolling();
+    }
+};
+
 const handleLaunch = async () => {
     if (!authData.value || !selectedInstance.value) return;
+    const instanceName = selectedInstance.value.name;
     try {
         isLaunching.value = true;
+        launchPhase.value = "installing";
+        launchMessage.value = "Starte Installation...";
         error.value = null;
-        const d = await apiFetch<{ success: boolean; instanceName?: string; version?: string; pid?: number; javaMajorVersion?: number; error?: string }>(
-            `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/launch`,
+
+        const d = await apiFetch<{ success: boolean; error?: string }>(
+            `/api/instances/${encodeURIComponent(instanceName)}/launch`,
             { method: "POST" },
         );
-        if (!d.success) { error.value = d.error ?? "Minecraft konnte nicht gestartet werden"; return; }
-        launcherMessage.value = [d.instanceName ?? selectedInstance.value.name, d.version && `mit ${d.version}`, d.javaMajorVersion && `Java ${d.javaMajorVersion}`, d.pid && `PID ${d.pid}`].filter(Boolean).join(" ") + " gestartet.";
-        await loadInstances();
+        if (!d.success) {
+            error.value = d.error ?? "Minecraft konnte nicht gestartet werden";
+            isLaunching.value = false;
+            launchPhase.value = "idle";
+            return;
+        }
+
+        launchPollInterval = window.setInterval(() => { void pollLaunchStatus(instanceName); }, 1500);
     } catch (e) {
         error.value = e instanceof Error ? e.message : "Minecraft konnte nicht gestartet werden";
-    } finally { isLaunching.value = false; }
+        isLaunching.value = false;
+        launchPhase.value = "idle";
+        stopLaunchPolling();
+    }
 };
 
 const handleStop = async () => {
@@ -231,6 +278,7 @@ const handleStop = async () => {
         );
         if (!d.success) { error.value = d.error ?? "Profil konnte nicht gestoppt werden"; return; }
         launcherMessage.value = `${d.instanceName ?? selectedInstance.value.name} erfolgreich gestoppt.`;
+        launchPhase.value = "idle";
         await loadInstances();
     } catch (e) {
         error.value = e instanceof Error ? e.message : "Profil konnte nicht gestoppt werden";
@@ -284,6 +332,7 @@ function init() {
 
 function cleanup() {
     stopAuth();
+    stopLaunchPolling();
     if (instancePollInterval !== null) { window.clearInterval(instancePollInterval); instancePollInterval = null; }
     versionsUnwatch?.();
     versionsUnwatch = null;
@@ -295,7 +344,8 @@ export function useLauncher() {
         authData, instances, availableVersions,
         selectedInstanceName, newInstanceName, selectedVersionId,
         includeSnapshots, includeBetas, includeAlphas,
-        isAuthenticating, isLaunching, isCreatingInstance, isLoadingInstances, isLoadingVersions,
+        isAuthenticating, isLaunching, launchPhase, launchMessage,
+        isCreatingInstance, isLoadingInstances, isLoadingVersions,
         error, launcherMessage,
         activeTab, showCreateModal, profileFilter, discoverTabActive, discoverPlatformActive, settingsNavItem, accentColor, toggleStates,
         uiScale, animationsEnabled, showFps,
