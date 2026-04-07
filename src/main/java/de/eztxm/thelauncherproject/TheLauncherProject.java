@@ -71,6 +71,16 @@ public class TheLauncherProject {
         CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
         Component browserUI = browser.getUIComponent();
 
+        client.addContextMenuHandler(new org.cef.handler.CefContextMenuHandlerAdapter() {
+            @Override
+            public void onBeforeContextMenu(
+                    CefBrowser browser, CefFrame frame,
+                    org.cef.callback.CefContextMenuParams params,
+                    org.cef.callback.CefMenuModel model) {
+                model.clear();
+            }
+        });
+
         makeDraggable(frame, browserUI, 50);
 
         if (browserUI instanceof JComponent jc) {
