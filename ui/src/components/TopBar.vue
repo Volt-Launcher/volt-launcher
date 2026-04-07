@@ -68,7 +68,7 @@ const navItems = [
         <Icon icon="lucide:zap" class="size-4" />
       </div>
       <div class="whitespace-nowrap text-[length:var(--text-md)] font-bold tracking-[0.11em] text-white">
-        THE<span class="text-[var(--primary)]">LAUNCHER</span>PROJECT
+        <span class="text-[var(--primary)]">VOLT</span>LAUNCHER
       </div>
     </div>
     <nav class="order-3 flex w-full gap-1 md:order-none md:w-auto md:flex-1 md:gap-2">
