@@ -6,14 +6,17 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.Executors;
 
 public final class HttpFetcher {
@@ -32,7 +35,18 @@ public final class HttpFetcher {
     }
 
     public String getString(String url) throws Exception {
-        HttpResponse<String> resp = client.send(request(url), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = client.send(get(url), HttpResponse.BodyHandlers.ofString());
+        assertSuccess(url, resp.statusCode());
+        return resp.body();
+    }
+
+    public String getString(String url, Map<String, String> headers) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(TIMEOUT)
+                .GET();
+        headers.forEach(builder::header);
+        HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
         assertSuccess(url, resp.statusCode());
         return resp.body();
     }
@@ -41,15 +55,48 @@ public final class HttpFetcher {
         return JsonUtil.parse(getString(url));
     }
 
+    public JSONObject getJson(String url, Map<String, String> headers) throws Exception {
+        return JsonUtil.parse(getString(url, headers));
+    }
+
     public JSONArray getJsonArray(String url) throws Exception {
         return JsonUtil.parseArray(getString(url));
     }
 
-    /**
-     * Download mit automatischem Retry (bis zu DOWNLOAD_MAX_ATTEMPTS Versuche).
-     * Wartet zwischen Versuchen exponentiell: 200ms, 400ms, 800ms, ...
-     * Überspringt den Download wenn die Datei existiert und der Hash passt.
-     */
+    public JSONObject postForm(String url, Map<String, String> fields) throws Exception {
+        String body = fields.entrySet().stream()
+                .map(e -> encode(e.getKey()) + "=" + encode(e.getValue()))
+                .reduce((a, b) -> a + "&" + b)
+                .orElse("");
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(TIMEOUT)
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertSuccess(url, resp.statusCode());
+        return JsonUtil.parse(resp.body());
+    }
+
+    public JSONObject postJson(String url, JSONObject body) throws Exception {
+        return postJson(url, body, Map.of());
+    }
+
+    public JSONObject postJson(String url, JSONObject body, Map<String, String> headers) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(TIMEOUT)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
+        headers.forEach(builder::header);
+        HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        assertSuccess(url, resp.statusCode());
+        return JsonUtil.parse(resp.body());
+    }
+
     public void download(String url, Path target, String expectedHash) throws Exception {
         if (Files.exists(target) && hashMatches(target, expectedHash)) {
             return;
@@ -71,8 +118,7 @@ public final class HttpFetcher {
 
     private void doDownload(String url, Path target, String expectedHash) throws Exception {
         Files.createDirectories(target.getParent());
-        HttpResponse<InputStream> resp = client.send(
-                request(url), HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<InputStream> resp = client.send(get(url), HttpResponse.BodyHandlers.ofInputStream());
         assertSuccess(url, resp.statusCode());
 
         Path tmp = Files.createTempFile(target.getParent(), "dl-", ".tmp");
@@ -81,12 +127,12 @@ public final class HttpFetcher {
         }
         if (!hashMatches(tmp, expectedHash)) {
             Files.deleteIfExists(tmp);
-            throw new IOException("Hash mismatch für " + target.getFileName());
+            throw new IOException("Hash mismatch for " + target.getFileName());
         }
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private static HttpRequest request(String url) {
+    private static HttpRequest get(String url) {
         return HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(TIMEOUT)
@@ -119,5 +165,9 @@ public final class HttpFetcher {
             sb.append(String.format("%02x", b));
         }
         return sb.toString().equalsIgnoreCase(expected);
+    }
+
+    private static String encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 }

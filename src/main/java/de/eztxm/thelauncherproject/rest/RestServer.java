@@ -1,11 +1,6 @@
 package de.eztxm.thelauncherproject.rest;
 
 import de.eztxm.thelauncherproject.launcher.*;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.AuthResult;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.AuthFlowStatus;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.PendingAuth;
-import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth.StartAuthResult;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import org.json.JSONArray;
@@ -244,9 +239,7 @@ public class RestServer {
 
             json.put("success", false);
             json.put("status", "error");
-            json.put("error", pendingAuth.getErrorMessage() != null
-                    ? pendingAuth.getErrorMessage()
-                    : "Authentication failed");
+            json.put("error", pendingAuth.getErrorMessage() != null ? pendingAuth.getErrorMessage() : "Authentication failed");
             msAuth.clearAuthState(state);
             ctx.contentType("application/json").result(json.toString());
         });
