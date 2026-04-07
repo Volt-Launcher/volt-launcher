@@ -23,7 +23,7 @@ public class TheLauncherProject {
     private static volatile JFrame mainFrame;
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
 
-    static void main(String[] args) throws Exception {
+    static void main(String[] args) {
         registerShutdownHook();
         startParentExitWatcher(resolveParentPid(args));
 
