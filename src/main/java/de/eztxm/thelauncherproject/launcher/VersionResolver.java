@@ -37,7 +37,10 @@ public final class VersionResolver {
     }
 
     public ManifestEntry findEntry(String versionId) throws Exception {
-        return loadEntries().stream().filter(e -> e.id.equals(versionId)).findFirst().orElseThrow(() -> new IllegalStateException("Minecraft version not found: " + versionId));
+        return loadEntries().stream()
+                .filter(e -> e.id().equals(versionId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Minecraft version not found: " + versionId));
     }
 
     public JSONObject resolveMetadata(String versionId) throws Exception {
@@ -45,7 +48,7 @@ public final class VersionResolver {
     }
 
     private JSONObject resolveInternal(String versionId, Set<String> visited) throws Exception {
-        if(!visited.add(versionId)) {
+        if (!visited.add(versionId)) {
             throw new IllegalStateException("Circular version inheritance for " + versionId);
         }
         JSONObject raw = http.getJson(findEntry(versionId).url());
@@ -58,12 +61,15 @@ public final class VersionResolver {
 
     private JSONObject merge(JSONObject parent, JSONObject child) {
         JSONObject merged = new JSONObject(parent.toString());
+
         if (parent.has("libraries") || child.has("libraries")) {
-            JSONArray libs = new JSONArray(parent.toString());
+            // Fix: new JSONArray() statt new JSONArray(parent.toString())
+            JSONArray libs = new JSONArray();
             appendArray(libs, parent.optJSONArray("libraries"));
             appendArray(libs, child.optJSONArray("libraries"));
             merged.put("libraries", libs);
         }
+
         if (parent.has("arguments") || child.has("arguments")) {
             JSONObject args = new JSONObject();
             mergeArgArray(args, parent.optJSONObject("arguments"), child.optJSONObject("arguments"), "game");
@@ -72,6 +78,7 @@ public final class VersionResolver {
                 merged.put("arguments", args);
             }
         }
+
         for (String key : child.keySet()) {
             if (Objects.equals(key, "inheritsFrom")
                     || Objects.equals(key, "libraries")
@@ -112,22 +119,15 @@ public final class VersionResolver {
     }
 
     private void appendArray(JSONArray target, JSONArray source) {
-        if (source == null) {
-            return;
-        }
+        if (source == null) return;
         for (int i = 0; i < source.length(); i++) {
             target.put(deepCopy(source.get(i)));
         }
     }
 
     private Object deepCopy(Object v) {
-        if (v instanceof JSONObject jo) {
-            return new JSONObject(jo.toString());
-        }
-        if (v instanceof JSONArray ja) {
-            return new JSONArray(ja.toString());
-        }
+        if (v instanceof JSONObject jo) return new JSONObject(jo.toString());
+        if (v instanceof JSONArray ja) return new JSONArray(ja.toString());
         return v;
     }
-
 }
