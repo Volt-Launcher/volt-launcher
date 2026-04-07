@@ -25,20 +25,36 @@ public final class LaunchCommandBuilder {
             JavaRuntimeResolver.JavaRuntime runtime) {
 
         Map<String, String> vars = buildVars(session, install);
+        JSONObject meta = install.launchMetadata();
+        boolean isLegacy = !meta.has("arguments") && meta.has("minecraftArguments");
+
         List<String> cmd = new ArrayList<>();
         cmd.add(runtime.javaExecutable().toString());
 
-        List<String> jvmArgs = collectArgs(install.launchMetadata(), "jvm");
-        if (jvmArgs.stream().noneMatch(a -> a.startsWith("-Xmx"))) {
+        if (isLegacy) {
             cmd.add("-Xmx2G");
+            cmd.add("-Xms512M");
+            cmd.add("-Djava.library.path=" + install.nativesDirectory().toAbsolutePath());
+            cmd.add("-Dminecraft.launcher.brand=TheLauncherProject");
+            cmd.add("-Dminecraft.launcher.version=0.1.0");
+            cmd.add("-cp");
+            cmd.add(install.classpath());
+        } else {
+            List<String> jvmArgs = collectArgs(meta, "jvm");
+            if (jvmArgs.stream().noneMatch(a -> a.startsWith("-Xmx"))) {
+                cmd.add("-Xmx2G");
+            }
+            for (String arg : jvmArgs) {
+                cmd.add(apply(arg, vars));
+            }
         }
-        for (String arg : jvmArgs) {
-            cmd.add(apply(arg, vars));
-        }
+
         cmd.add(install.mainClass());
-        for (String arg : collectArgs(install.launchMetadata(), "game")) {
+
+        for (String arg : collectArgs(meta, "game")) {
             cmd.add(apply(arg, vars));
         }
+
         return List.copyOf(cmd);
     }
 
@@ -65,7 +81,7 @@ public final class LaunchCommandBuilder {
         v.put("library_directory",   i.librariesDirectory().toString());
         v.put("resolution_width",    "1280");
         v.put("resolution_height",   "720");
-        v.put("game_assets",         i.assetIndexId());
+        v.put("game_assets",         i.assetsDirectory().resolve("virtual").resolve(i.assetIndexId()).toString());
         if (i.loggingConfigPath() != null) {
             v.put("path", i.loggingConfigPath().toString());
         }
@@ -98,9 +114,8 @@ public final class LaunchCommandBuilder {
             }
             return args;
         }
-        // Legacy minecraftArguments (pre-1.13)
-        String legacy = meta.optString("minecraftArguments", "");
-        if (!legacy.isBlank() && "game".equals(type)) {
+        if ("game".equals(type)) {
+            String legacy = meta.optString("minecraftArguments", "");
             for (String part : legacy.split(" ")) {
                 if (!part.isBlank()) args.add(part.trim());
             }
@@ -113,48 +128,34 @@ public final class LaunchCommandBuilder {
         boolean allowed = false;
         for (int i = 0; i < rules.length(); i++) {
             JSONObject rule = rules.getJSONObject(i);
-            // Features (z.B. is_demo_user, has_custom_resolution) überspringen
             if (rule.has("features") && !rule.getJSONObject("features").isEmpty()) continue;
-            // OS-Regel prüfen
             if (rule.has("os") && !osMatches(rule.getJSONObject("os"))) continue;
             allowed = "allow".equals(rule.optString("action", "allow"));
         }
         return allowed;
     }
 
-    /**
-     * Prüft ob eine OS-Regel auf das aktuelle System zutrifft.
-     * Ohne diese Prüfung landen macOS-only Flags wie -XstartOnFirstThread
-     * auch auf Linux/Windows im Launch-Command → JVM-Fehler.
-     */
     private boolean osMatches(JSONObject os) {
         String osName    = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String osArch    = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         String osVersion = System.getProperty("os.version", "");
 
         String expectedName = os.optString("name", "");
-        if (!expectedName.isBlank()) {
-            String currentOs = currentOsName(osName);
-            if (!expectedName.equals(currentOs)) return false;
-        }
+        if (!expectedName.isBlank() && !expectedName.equals(currentOsName(osName))) return false;
 
         String expectedArch = os.optString("arch", "");
-        if (!expectedArch.isBlank() && !osArch.contains(expectedArch.toLowerCase(Locale.ROOT))) {
-            return false;
-        }
+        if (!expectedArch.isBlank() && !osArch.contains(expectedArch.toLowerCase(Locale.ROOT))) return false;
 
         String expectedVersion = os.optString("version", "");
         if (!expectedVersion.isBlank()) {
-            try {
-                if (!osVersion.matches(expectedVersion)) return false;
-            } catch (Exception ignored) {}
+            try { if (!osVersion.matches(expectedVersion)) return false; }
+            catch (Exception ignored) {}
         }
-
         return true;
     }
 
     private String currentOsName(String osName) {
-        if (osName.contains("win"))                          return "windows";
+        if (osName.contains("win"))                               return "windows";
         if (osName.contains("mac") || osName.contains("darwin")) return "osx";
         return "linux";
     }

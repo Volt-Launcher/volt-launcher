@@ -12,12 +12,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -41,12 +36,6 @@ public final class AssetInstaller {
 
     private record OsDetails(String name, String archBits) {}
 
-    /**
-     * Maximale Anzahl gleichzeitiger HTTP-Verbindungen bei Asset-Downloads.
-     * HTTP/2 zu resources.download.minecraft.net erlaubt ca. 100 concurrent streams,
-     * aber der Server schliesst die Verbindung bei Ueberlastung.
-     * 16 ist ein stabiler Wert der Mojang-Server nicht ueberlaestet.
-     */
     private static final int ASSET_CONCURRENCY = 16;
 
     private final HttpFetcher http;
@@ -64,11 +53,11 @@ public final class AssetInstaller {
                 ? meta
                 : versionResolver.resolveMetadata(clientVersionId);
 
-        Path mcDir = AppPaths.minecraftDirectory();
+        Path mcDir       = AppPaths.minecraftDirectory();
         Path versionsDir = mcDir.resolve("versions");
-        Path libsDir = mcDir.resolve("libraries");
-        Path assetsDir = mcDir.resolve("assets");
-        Path nativesDir = mcDir.resolve("natives").resolve(instance.slug()).resolve(launchVersionId);
+        Path libsDir     = mcDir.resolve("libraries");
+        Path assetsDir   = mcDir.resolve("assets");
+        Path nativesDir  = mcDir.resolve("natives").resolve(instance.slug()).resolve(launchVersionId);
 
         Files.createDirectories(versionsDir.resolve(launchVersionId));
         Files.createDirectories(versionsDir.resolve(clientVersionId));
@@ -88,7 +77,18 @@ public final class AssetInstaller {
             assetIndexId = assetIndex.getString("id");
             Path indexPath = assetsDir.resolve("indexes").resolve(assetIndexId + ".json");
             http.download(assetIndex.getString("url"), indexPath, assetIndex.optString("sha1", ""));
-            downloadAssetsParallel(indexPath, assetsDir.resolve("objects"));
+
+            JSONObject indexJson = JsonUtil.readFile(indexPath);
+            downloadAssetsParallel(indexJson, assetsDir.resolve("objects"));
+
+            boolean isVirtual = indexJson.optBoolean("virtual", false);
+            boolean mapResources = indexJson.optBoolean("map_to_resources", false);
+            if (isVirtual) {
+                createVirtualAssets(indexJson, assetsDir.resolve("objects"), assetsDir.resolve("virtual").resolve(assetIndexId));
+            }
+            if (mapResources) {
+                createVirtualAssets(indexJson, assetsDir.resolve("objects"), instance.gameDirectory().resolve("resources"));
+            }
         }
 
         Path loggingConfigPath = resolveLoggingConfig(meta, assetsDir);
@@ -102,26 +102,30 @@ public final class AssetInstaller {
                 meta.getString("mainClass"), loggingConfigPath, assetIndexId, instance.versionType());
     }
 
-    /**
-     * Lädt alle Asset-Objekte parallel herunter.
-     *
-     * Semaphore begrenzt gleichzeitige HTTP-Streams auf ASSET_CONCURRENCY.
-     * Virtual Threads (Java 21+) werden genutzt — kein Blocking des Carrier-Threads.
-     * HttpFetcher.download() hat eingebautes Retry, kein separates Retry hier nötig.
-     *
-     * Fehler-Propagation: CompletableFuture.allOf().join() wirft CompletionException,
-     * die in ensureInstallation nach oben weitergereicht wird.
-     */
-    private void downloadAssetsParallel(Path indexPath, Path objectsDir) throws Exception {
-        JSONObject objects = JsonUtil.readFile(indexPath).getJSONObject("objects");
+    private void createVirtualAssets(JSONObject indexJson, Path objectsDir, Path virtualDir) throws Exception {
+        JSONObject objects = indexJson.getJSONObject("objects");
+        Files.createDirectories(virtualDir);
+        for (String assetName : objects.keySet()) {
+            String hash   = objects.getJSONObject(assetName).getString("hash");
+            String prefix = hash.substring(0, 2);
+            Path src  = objectsDir.resolve(prefix).resolve(hash);
+            Path dest = virtualDir.resolve(assetName.replace("/", File.separator));
+            if (Files.exists(dest)) continue;
+            Files.createDirectories(dest.getParent());
+            Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private void downloadAssetsParallel(JSONObject indexJson, Path objectsDir) throws Exception {
+        JSONObject objects = indexJson.getJSONObject("objects");
         Semaphore sem = new Semaphore(ASSET_CONCURRENCY);
         try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> tasks = new ArrayList<>(objects.length());
             for (String name : objects.keySet()) {
-                String hash = objects.getJSONObject(name).getString("hash");
+                String hash   = objects.getJSONObject(name).getString("hash");
                 String prefix = hash.substring(0, 2);
                 Path target = objectsDir.resolve(prefix).resolve(hash);
-                String url = "https://resources.download.minecraft.net/" + prefix + "/" + hash;
+                String url  = "https://resources.download.minecraft.net/" + prefix + "/" + hash;
                 tasks.add(CompletableFuture.runAsync(() -> {
                     try {
                         sem.acquire();
@@ -140,13 +144,9 @@ public final class AssetInstaller {
     }
 
     private Path resolveLoggingConfig(JSONObject meta, Path assetsDir) throws Exception {
-        if (!meta.has("logging")) {
-            return null;
-        }
+        if (!meta.has("logging")) return null;
         JSONObject client = meta.getJSONObject("logging").optJSONObject("client");
-        if (client == null) {
-            return null;
-        }
+        if (client == null) return null;
         JSONObject file = client.getJSONObject("file");
         Path path = assetsDir.resolve("log_configs").resolve(file.getString("id"));
         http.download(file.getString("url"), path, file.optString("sha1", ""));
@@ -156,18 +156,12 @@ public final class AssetInstaller {
     private void downloadLibraries(
             JSONObject meta, Path libsDir, Path nativesDir, LinkedHashSet<String> cp) throws Exception {
         JSONArray libraries = meta.optJSONArray("libraries");
-        if (libraries == null) {
-            return;
-        }
+        if (libraries == null) return;
         for (int i = 0; i < libraries.length(); i++) {
             JSONObject lib = libraries.getJSONObject(i);
-            if (!isAllowedByRules(lib.optJSONArray("rules"))) {
-                continue;
-            }
+            if (!isAllowedByRules(lib.optJSONArray("rules"))) continue;
             JSONObject downloads = lib.optJSONObject("downloads");
-            if (downloads == null) {
-                continue;
-            }
+            if (downloads == null) continue;
             JSONObject artifact = downloads.optJSONObject("artifact");
             if (artifact != null) {
                 Path p = libsDir.resolve(artifact.getString("path"));
@@ -192,9 +186,7 @@ public final class AssetInstaller {
         if (extractConfig != null) {
             JSONArray arr = extractConfig.optJSONArray("exclude");
             if (arr != null) {
-                for (int i = 0; i < arr.length(); i++) {
-                    excludes.add(arr.getString(i));
-                }
+                for (int i = 0; i < arr.length(); i++) excludes.add(arr.getString(i));
             }
         }
         try (InputStream in = Files.newInputStream(archive);
@@ -202,13 +194,9 @@ public final class AssetInstaller {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName();
-                if (entry.isDirectory() || excludes.stream().anyMatch(name::startsWith)) {
-                    continue;
-                }
+                if (entry.isDirectory() || excludes.stream().anyMatch(name::startsWith)) continue;
                 Path out = targetDir.resolve(name).normalize();
-                if (!out.startsWith(targetDir)) {
-                    throw new IOException("Invalid native path: " + name);
-                }
+                if (!out.startsWith(targetDir)) throw new IOException("Invalid native path: " + name);
                 Files.createDirectories(out.getParent());
                 Files.copy(zip, out, StandardCopyOption.REPLACE_EXISTING);
             }
@@ -216,33 +204,23 @@ public final class AssetInstaller {
     }
 
     private boolean isAllowedByRules(JSONArray rules) {
-        if (rules == null || rules.isEmpty()) {
-            return true;
-        }
+        if (rules == null || rules.isEmpty()) return true;
         boolean allowed = false;
         for (int i = 0; i < rules.length(); i++) {
             JSONObject rule = rules.getJSONObject(i);
-            if (!ruleMatches(rule)) {
-                continue;
-            }
+            if (!ruleMatches(rule)) continue;
             allowed = Objects.equals(rule.optString("action", "allow"), "allow");
         }
         return allowed;
     }
 
     private boolean ruleMatches(JSONObject rule) {
-        if (rule.has("features") && !rule.getJSONObject("features").isEmpty()) {
-            return false;
-        }
-        if (!rule.has("os")) {
-            return true;
-        }
+        if (rule.has("features") && !rule.getJSONObject("features").isEmpty()) return false;
+        if (!rule.has("os")) return true;
         OsDetails os = currentOs();
         JSONObject osJson = rule.getJSONObject("os");
         String expectedName = osJson.optString("name", "");
-        if (!expectedName.isBlank() && !expectedName.equals(os.name())) {
-            return false;
-        }
+        if (!expectedName.isBlank() && !expectedName.equals(os.name())) return false;
         String expectedArch = osJson.optString("arch", "");
         return expectedArch.isBlank()
                 || System.getProperty("os.arch", "").toLowerCase(Locale.ROOT)
@@ -252,21 +230,15 @@ public final class AssetInstaller {
     private String resolveNativeClassifier(JSONObject natives) {
         OsDetails os = currentOs();
         String classifier = natives.optString(os.name(), "");
-        if (classifier.isBlank()) {
-            return null;
-        }
+        if (classifier.isBlank()) return null;
         return classifier.replace("${arch}", os.archBits());
     }
 
     private OsDetails currentOs() {
         String name = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String bits = System.getProperty("os.arch", "").contains("64") ? "64" : "32";
-        if (name.contains("win")) {
-            return new OsDetails("windows", bits);
-        }
-        if (name.contains("mac") || name.contains("darwin")) {
-            return new OsDetails("osx", bits);
-        }
+        if (name.contains("win"))                               return new OsDetails("windows", bits);
+        if (name.contains("mac") || name.contains("darwin"))   return new OsDetails("osx", bits);
         return new OsDetails("linux", bits);
     }
 
@@ -276,11 +248,8 @@ public final class AssetInstaller {
                 walk.sorted(Comparator.reverseOrder())
                         .filter(p -> !p.equals(dir))
                         .forEach(p -> {
-                            try {
-                                Files.deleteIfExists(p);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
+                            try { Files.deleteIfExists(p); }
+                            catch (IOException e) { throw new RuntimeException(e); }
                         });
             }
         }
