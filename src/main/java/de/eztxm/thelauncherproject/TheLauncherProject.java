@@ -67,6 +67,30 @@ public class TheLauncherProject {
         CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
         Component browserUI = browser.getUIComponent();
 
+        browserUI.addMouseWheelListener(e -> {
+            e.consume();
+            int pixels = (int) (e.getPreciseWheelRotation() * 80);
+            int mouseX = e.getX();
+            int mouseY = e.getY();
+            browser.executeJavaScript("""
+        (function() {
+            var el = document.elementFromPoint(%d, %d);
+            while (el && el !== document.body) {
+                var style = getComputedStyle(el);
+                var overflow = style.overflow + style.overflowY;
+                if (overflow.includes('auto') || overflow.includes('scroll')) {
+                    el.scrollTop += %d;
+                    return;
+                }
+                el = el.parentElement;
+            }
+            window.scrollBy(0, %d);
+        })();
+    """.formatted(mouseX, mouseY, pixels, pixels),
+                    browser.getURL(), 0
+            );
+        });
+
         makeDraggable(frame, browserUI, 50);
 
         if (browserUI instanceof JComponent jc) {
