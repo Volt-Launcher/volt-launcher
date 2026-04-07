@@ -55,6 +55,7 @@ public class TheLauncherProject {
         JFrame frame = new JFrame("TheLauncherProject");
         mainFrame = frame;
         frame.setSize(1280, 720);
+        frame.setTitle("TheLauncherProject");
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.setUndecorated(true);
