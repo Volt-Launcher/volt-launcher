@@ -71,19 +71,20 @@ const navItems = [
         THE<span class="text-[var(--primary)]">LAUNCHER</span>PROJECT
       </div>
     </div>
-    <nav class="order-3 flex w-full flex-wrap gap-2 md:order-none md:w-auto md:flex-1">
+    <nav class="order-3 flex w-full gap-1 md:order-none md:w-auto md:flex-1 md:gap-2">
       <button
         v-for="item in navItems"
         :key="item.id"
         type="button"
-        class="inline-flex cursor-pointer items-center gap-[7px] rounded-[7px] border px-4 py-2 text-[length:var(--text-base)] font-semibold tracking-[0.08em] transition-all duration-200"
+        class="inline-flex cursor-pointer items-center justify-center gap-[7px] rounded-[7px] border p-2 text-[length:var(--text-base)] font-semibold tracking-[0.08em] transition-all duration-200 md:px-4 md:py-2"
         :class="activeTab === item.id
           ? 'border-[var(--accent-border)] bg-[var(--accent-bg)] text-white'
           : 'border-transparent bg-transparent text-white/60 hover:bg-white/5 hover:text-white'"
+        :title="item.label"
         @click="activeTab = item.id"
       >
         <Icon :icon="item.icon" class="size-[13px]" :class="activeTab === item.id ? 'text-[var(--primary)]' : ''" />
-        {{ item.label }}
+        <span class="hidden md:inline">{{ item.label }}</span>
       </button>
     </nav>
     <div class="ml-auto flex items-center gap-2">
