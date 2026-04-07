@@ -1,6 +1,10 @@
 package de.eztxm.thelauncherproject.rest;
 
+import de.eztxm.thelauncherproject.auth.AuthFlowStatus;
+import de.eztxm.thelauncherproject.auth.AuthResult;
+import de.eztxm.thelauncherproject.auth.PendingAuth;
 import de.eztxm.thelauncherproject.launcher.*;
+import de.eztxm.thelauncherproject.rest.auth.MicrosoftAuth;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import org.json.JSONArray;
@@ -45,13 +49,11 @@ public class RestServer {
     public void start() {
         app = Javalin.create(config -> {
             config.staticFiles.add(staticFiles -> {
-            	staticFiles.hostedPath = "/";
-            	staticFiles.directory = "/dist";
-            	staticFiles.location = Location.CLASSPATH;
+                staticFiles.hostedPath = "/";
+                staticFiles.directory = "/dist";
+                staticFiles.location = Location.CLASSPATH;
             });
-
             config.bundledPlugins.enableCors(cors -> cors.addRule(rule -> rule.anyHost()));
-
             config.router.mount(router -> router.beforeMatched(ctx -> {
                 String path = ctx.path();
                 if (!path.startsWith("/api")
@@ -77,8 +79,8 @@ public class RestServer {
                 json.put("success", true);
                 json.put("authenticated", session != null);
                 if (session != null) {
-                    json.put("uuid", session.getUuid());
-                    json.put("username", session.getUsername());
+                    json.put("uuid", session.uuid());
+                    json.put("username", session.username());
                 }
                 ctx.contentType("application/json").result(json.toString());
             } catch (Exception e) {
@@ -96,7 +98,6 @@ public class RestServer {
                 for (LauncherInstance instance : minecraftLauncher.listInstances()) {
                     instances.put(toInstanceJson(instance));
                 }
-
                 JSONObject json = new JSONObject();
                 json.put("success", true);
                 json.put("instances", instances);
@@ -111,18 +112,13 @@ public class RestServer {
 
         app.get("/api/instances/versions", ctx -> {
             boolean includeSnapshots = ctx.queryParamAsClass("includeSnapshots", Boolean.class).getOrDefault(false);
-            boolean includeBetas = ctx.queryParamAsClass("includeBetas", Boolean.class).getOrDefault(false);
-            boolean includeAlphas = ctx.queryParamAsClass("includeAlphas", Boolean.class).getOrDefault(false);
-
+            boolean includeBetas     = ctx.queryParamAsClass("includeBetas",     Boolean.class).getOrDefault(false);
+            boolean includeAlphas    = ctx.queryParamAsClass("includeAlphas",    Boolean.class).getOrDefault(false);
             try {
                 JSONArray versions = new JSONArray();
-                for (AvailableVersion version : minecraftLauncher.listVersions(
-                        includeSnapshots,
-                        includeBetas,
-                        includeAlphas)) {
+                for (AvailableVersion version : minecraftLauncher.listVersions(includeSnapshots, includeBetas, includeAlphas)) {
                     versions.put(toVersionJson(version));
                 }
-
                 JSONObject json = new JSONObject();
                 json.put("success", true);
                 json.put("versions", versions);
@@ -138,9 +134,8 @@ public class RestServer {
         app.post("/api/instances", ctx -> {
             try {
                 JSONObject body = new JSONObject(ctx.body());
-                String name = body.optString("name", "");
+                String name      = body.optString("name", "");
                 String versionId = body.optString("versionId", "");
-
                 LauncherInstance instance = minecraftLauncher.createInstance(name, versionId);
                 JSONObject json = new JSONObject();
                 json.put("success", true);
@@ -167,13 +162,12 @@ public class RestServer {
 
         app.get("/api/auth/login", ctx -> {
             try {
-                StartAuthResult start = msAuth.startAuthFlow();
+                MicrosoftAuth.StartAuthResult start = msAuth.startAuthFlow();
                 JSONObject json = new JSONObject();
                 json.put("success", true);
                 json.put("state", start.state());
                 json.put("url", start.url());
-                json.put("message",
-                        "Browser opened. After authentication you will be redirected back automatically.");
+                json.put("message", "Browser opened. After authentication you will be redirected back automatically.");
                 ctx.contentType("application/json").result(json.toString());
             } catch (Exception e) {
                 JSONObject json = new JSONObject();
@@ -209,8 +203,8 @@ public class RestServer {
                 return;
             }
 
-            PendingAuth pendingAuth = msAuth.checkAuthStatus(state);
-            if (pendingAuth == null) {
+            PendingAuth pending = msAuth.checkAuthStatus(state);
+            if (pending == null) {
                 json.put("success", false);
                 json.put("status", "expired");
                 json.put("error", "Authentication session expired or was already completed");
@@ -218,7 +212,7 @@ public class RestServer {
                 return;
             }
 
-            AuthFlowStatus status = pendingAuth.getStatus();
+            AuthFlowStatus status = pending.status();
             if (status == AuthFlowStatus.PENDING) {
                 json.put("success", true);
                 json.put("status", "pending");
@@ -226,12 +220,12 @@ public class RestServer {
                 return;
             }
 
-            if (status == AuthFlowStatus.SUCCESS && pendingAuth.getResult() != null) {
-                AuthResult result = pendingAuth.getResult();
+            if (status == AuthFlowStatus.SUCCESS && pending.result() != null) {
+                AuthResult result = pending.result();
                 json.put("success", true);
                 json.put("status", "success");
-                json.put("uuid", result.getUuid());
-                json.put("username", result.getUsername());
+                json.put("uuid", result.uuid());
+                json.put("username", result.username());
                 msAuth.clearAuthState(state);
                 ctx.contentType("application/json").result(json.toString());
                 return;
@@ -239,21 +233,16 @@ public class RestServer {
 
             json.put("success", false);
             json.put("status", "error");
-            json.put("error", pendingAuth.getErrorMessage() != null ? pendingAuth.getErrorMessage() : "Authentication failed");
+            json.put("error", pending.errorMessage() != null ? pending.errorMessage() : "Authentication failed");
             msAuth.clearAuthState(state);
             ctx.contentType("application/json").result(json.toString());
         });
 
         app.post("/api/auth/submit", ctx -> {
-            String code = ctx.formParam("code");
-            if (code == null) {
-                code = ctx.queryParam("code");
-            }
-
+            String code  = ctx.formParam("code");
+            if (code == null)  code  = ctx.queryParam("code");
             String state = ctx.formParam("state");
-            if (state == null) {
-                state = ctx.queryParam("state");
-            }
+            if (state == null) state = ctx.queryParam("state");
 
             if (code == null || state == null) {
                 JSONObject json = new JSONObject();
@@ -267,8 +256,8 @@ public class RestServer {
                 AuthResult result = msAuth.handleAuthCode(code, state);
                 JSONObject json = new JSONObject();
                 json.put("success", true);
-                json.put("uuid", result.getUuid());
-                json.put("username", result.getUsername());
+                json.put("uuid", result.uuid());
+                json.put("username", result.username());
                 msAuth.clearAuthState(state);
                 ctx.contentType("application/json").result(json.toString());
             } catch (Exception e) {
@@ -335,58 +324,43 @@ public class RestServer {
         app.post("/api/window/minimize", ctx -> {
             try {
                 minimizeWindowAction.execute();
-                JSONObject json = new JSONObject();
-                json.put("success", true);
-                ctx.contentType("application/json").result(json.toString());
+                ctx.contentType("application/json").result("{\"success\":true}");
             } catch (Exception e) {
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error", e.getMessage());
-                ctx.status(500).contentType("application/json").result(json.toString());
+                ctx.status(500).contentType("application/json")
+                        .result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}");
             }
         });
 
         app.post("/api/window/maximize", ctx -> {
             try {
                 maximizeWindowAction.execute();
-                JSONObject json = new JSONObject();
-                json.put("success", true);
-                ctx.contentType("application/json").result(json.toString());
+                ctx.contentType("application/json").result("{\"success\":true}");
             } catch (Exception e) {
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error", e.getMessage());
-                ctx.status(500).contentType("application/json").result(json.toString());
+                ctx.status(500).contentType("application/json")
+                        .result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}");
             }
         });
 
         app.post("/api/window/close", ctx -> {
             try {
                 closeWindowAction.execute();
-                JSONObject json = new JSONObject();
-                json.put("success", true);
-                ctx.contentType("application/json").result(json.toString());
+                ctx.contentType("application/json").result("{\"success\":true}");
             } catch (Exception e) {
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error", e.getMessage());
-                ctx.status(500).contentType("application/json").result(json.toString());
+                ctx.status(500).contentType("application/json")
+                        .result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}");
             }
         });
 
         app.get("/callback", ctx -> {
-            String code = ctx.queryParam("code");
-            String state = ctx.queryParam("state");
-            String error = ctx.queryParam("error");
+            String code             = ctx.queryParam("code");
+            String state            = ctx.queryParam("state");
+            String error            = ctx.queryParam("error");
             String errorDescription = ctx.queryParam("error_description");
 
             if (error != null) {
                 String msg = errorDescription != null ? errorDescription : error;
                 if (state != null && !state.isBlank()) {
-                    try {
-                        msAuth.failAuthFlow(state, msg);
-                    } catch (IllegalStateException ignored) {
-                    }
+                    try { msAuth.failAuthFlow(state, msg); } catch (IllegalStateException ignored) {}
                 }
                 ctx.status(400).html(buildCallbackPage("Microsoft login failed", msg, false));
                 return;
@@ -404,24 +378,17 @@ public class RestServer {
                 AuthResult result = msAuth.handleAuthCode(code, state);
                 ctx.html(buildCallbackPage(
                         "Microsoft login successful",
-                        "Welcome, " + result.getUsername() + "! You can close this window.",
+                        "Welcome, " + result.username() + "! You can close this window.",
                         true));
             } catch (IllegalStateException e) {
-                ctx.status(400).html(buildCallbackPage(
-                        "Microsoft login failed",
-                        e.getMessage(),
-                        false));
+                ctx.status(400).html(buildCallbackPage("Microsoft login failed", e.getMessage(), false));
             } catch (Exception e) {
                 logError("Authentication callback failed", e);
-                ctx.status(500).html(buildCallbackPage(
-                        "Microsoft login failed",
-                        e.getMessage(),
-                        false));
+                ctx.status(500).html(buildCallbackPage("Microsoft login failed", e.getMessage(), false));
             }
         });
 
         System.out.println("Javalin server started on http://localhost:" + port);
-        System.out.println("UI available at http://localhost:" + port);
     }
 
     public void stop() {
@@ -432,10 +399,9 @@ public class RestServer {
     }
 
     private String buildCallbackPage(String title, String message, boolean success) {
-        String safeTitle = escapeHtml(title);
+        String safeTitle   = escapeHtml(title);
         String safeMessage = escapeHtml(message != null ? message : "Authentication finished.");
-        String accentColor = success ? "#16a34a" : "#dc2626";
-
+        String accent      = success ? "#16a34a" : "#dc2626";
         return """
                 <!DOCTYPE html>
                 <html lang="en">
@@ -443,65 +409,27 @@ public class RestServer {
                     <meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     <title>%s</title>
-                    <script>
-                        window.addEventListener('load', () => {
-                            setTimeout(() => window.close(), 1200);
-                        });
-                    </script>
+                    <script>window.addEventListener('load', () => setTimeout(() => window.close(), 1200));</script>
                     <style>
-                        body {
-                            margin: 0;
-                            min-height: 100vh;
-                            display: grid;
-                            place-items: center;
-                            background: #111827;
-                            color: #f9fafb;
-                            font-family: Arial, sans-serif;
-                        }
-                        main {
-                            max-width: 28rem;
-                            padding: 2rem;
-                            border-radius: 1rem;
-                            background: #1f2937;
-                            box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
-                            text-align: center;
-                        }
-                        h1 {
-                            margin-top: 0;
-                            color: %s;
-                        }
-                        p {
-                            line-height: 1.5;
-                            word-break: break-word;
-                        }
-                        button {
-                            margin-top: 1rem;
-                            border: 0;
-                            border-radius: 9999px;
-                            padding: 0.8rem 1.2rem;
-                            font-weight: 700;
-                            cursor: pointer;
-                            color: white;
-                            background: %s;
-                        }
+                        body { margin:0; min-height:100vh; display:grid; place-items:center;
+                               background:#111827; color:#f9fafb; font-family:Arial,sans-serif; }
+                        main { max-width:28rem; padding:2rem; border-radius:1rem;
+                               background:#1f2937; box-shadow:0 20px 45px rgba(0,0,0,.35); text-align:center; }
+                        h1 { margin-top:0; color:%s; }
+                        p  { line-height:1.5; word-break:break-word; }
+                        button { margin-top:1rem; border:0; border-radius:9999px; padding:.8rem 1.2rem;
+                                 font-weight:700; cursor:pointer; color:white; background:%s; }
                     </style>
                 </head>
                 <body>
-                    <main>
-                        <h1>%s</h1>
-                        <p>%s</p>
-                        <button onclick="window.close()">Close window</button>
-                    </main>
+                    <main><h1>%s</h1><p>%s</p><button onclick="window.close()">Close window</button></main>
                 </body>
                 </html>
-                """.formatted(safeTitle, accentColor, accentColor, safeTitle, safeMessage);
+                """.formatted(safeTitle, accent, accent, safeTitle, safeMessage);
     }
 
     private String escapeHtml(String value) {
-        if (value == null) {
-            return "";
-        }
-
+        if (value == null) return "";
         return value
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
@@ -512,36 +440,36 @@ public class RestServer {
 
     private JSONObject toInstanceJson(LauncherInstance instance) {
         JSONObject json = new JSONObject();
-        json.put("name", instance.name());
-        json.put("slug", instance.slug());
-        json.put("versionId", instance.versionId());
-        json.put("versionType", instance.versionType());
-        json.put("createdAt", instance.createdAt());
-        json.put("lastPlayedAt", instance.lastPlayedAt());
+        json.put("name",           instance.name());
+        json.put("slug",           instance.slug());
+        json.put("versionId",      instance.versionId());
+        json.put("versionType",    instance.versionType());
+        json.put("createdAt",      instance.createdAt());
+        json.put("lastPlayedAt",   instance.lastPlayedAt());
         json.put("javaMajorVersion", instance.javaMajorVersion());
-        json.put("javaComponent", instance.javaComponent());
+        json.put("javaComponent",  instance.javaComponent());
 
-        RunningInstanceStatus runningStatus = minecraftLauncher.getRunningInstanceStatus(instance.name());
-        json.put("running", runningStatus != null && runningStatus.alive());
-        if (runningStatus != null) {
-            json.put("pid", runningStatus.pid());
-            json.put("startedAt", runningStatus.startedAt());
-            json.put("javaExecutable", runningStatus.javaExecutable());
-            json.put("runningJavaMajorVersion", runningStatus.javaMajorVersion());
+        RunningInstanceStatus running = minecraftLauncher.getRunningInstanceStatus(instance.name());
+        json.put("running", running != null && running.alive());
+        if (running != null) {
+            json.put("pid",                    running.pid());
+            json.put("startedAt",              running.startedAt());
+            json.put("javaExecutable",         running.javaExecutable());
+            json.put("runningJavaMajorVersion", running.javaMajorVersion());
         }
         return json;
     }
 
     private JSONObject toVersionJson(AvailableVersion version) {
         JSONObject json = new JSONObject();
-        json.put("id", version.id());
-        json.put("type", version.type());
+        json.put("id",          version.id());
+        json.put("type",        version.type());
         json.put("releaseTime", version.releaseTime());
         return json;
     }
 
-    private void logError(String message, Exception exception) {
-        System.err.println("[RestServer] " + message + ": " + exception.getMessage());
-        exception.printStackTrace(System.err);
+    private void logError(String message, Exception e) {
+        System.err.println("[RestServer] " + message + ": " + e.getMessage());
+        e.printStackTrace(System.err);
     }
 }
