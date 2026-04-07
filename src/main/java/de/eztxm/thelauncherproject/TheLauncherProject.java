@@ -7,9 +7,11 @@ import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
-import org.cef.handler.CefLoadHandlerAdapter;
+import org.cef.handler.CefContextMenuHandlerAdapter;
 import org.cef.handler.CefRequestHandlerAdapter;
 import org.cef.network.CefRequest;
+import org.cef.callback.CefContextMenuParams;
+import org.cef.callback.CefMenuModel;
 
 import javax.swing.*;
 import java.awt.*;
@@ -25,8 +27,9 @@ public class TheLauncherProject {
     private static final Color APP_BG = new Color(3, 9, 18);
 
     private static volatile RestServer restServer;
-    private static volatile CefApp cefApp;
-    private static volatile JFrame mainFrame;
+    private static volatile CefApp    cefApp;
+    private static volatile CefBrowser mainBrowser;
+    private static volatile JFrame    mainFrame;
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
 
     static void main(String[] args) {
@@ -68,18 +71,18 @@ public class TheLauncherProject {
         frame.getContentPane().setBackground(APP_BG);
 
         CefClient client = app.createClient();
-        CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
-        Component browserUI = browser.getUIComponent();
 
-        client.addContextMenuHandler(new org.cef.handler.CefContextMenuHandlerAdapter() {
+        client.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
             @Override
-            public void onBeforeContextMenu(
-                    CefBrowser browser, CefFrame frame,
-                    org.cef.callback.CefContextMenuParams params,
-                    org.cef.callback.CefMenuModel model) {
+            public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
+                                            CefContextMenuParams params, CefMenuModel model) {
                 model.clear();
             }
         });
+
+        CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
+        mainBrowser = browser;
+        Component browserUI = browser.getUIComponent();
 
         makeDraggable(frame, browserUI, 50);
 
@@ -140,8 +143,6 @@ public class TheLauncherProject {
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                browser.close(true);
-                frame.dispose();
                 shutdown();
             }
         });
@@ -149,22 +150,22 @@ public class TheLauncherProject {
         frame.setVisible(true);
     }
 
-    /**
-     * Öffnet ein JCEF-Popup mit dem Minecraft-gebrandeten Microsoft-Login.
-     * Sobald Microsoft zu oauth20_desktop.srf redirectet, fangen wir die URL ab,
-     * extrahieren code + state und schicken sie ans Backend.
-     */
     private static void openAuthPopup(String authUrl) {
         SwingUtilities.invokeLater(() -> {
             CefApp app = cefApp;
             if (app == null) return;
 
             JFrame[] popupRef = new JFrame[1];
-
             CefClient popupClient = app.createClient();
 
-            // Redirect abfangen: wenn die URL mit oauth20_desktop.srf beginnt,
-            // sind code + state in den Query-Parametern
+            popupClient.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
+                @Override
+                public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
+                                                CefContextMenuParams params, CefMenuModel model) {
+                    model.clear();
+                }
+            });
+
             popupClient.addRequestHandler(new CefRequestHandlerAdapter() {
                 @Override
                 public boolean onBeforeBrowse(CefBrowser browser, CefFrame frame,
@@ -177,7 +178,7 @@ public class TheLauncherProject {
                             JFrame popup = popupRef[0];
                             if (popup != null) popup.dispose();
                         });
-                        return true; // Navigation blockieren
+                        return true;
                     }
                     return false;
                 }
@@ -204,7 +205,6 @@ public class TheLauncherProject {
             });
 
             popup.add(popupUI, BorderLayout.CENTER);
-
             popup.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosing(WindowEvent e) {
@@ -217,19 +217,12 @@ public class TheLauncherProject {
         });
     }
 
-    /**
-     * Parst code + state aus der Redirect-URL und schickt sie ans Backend.
-     */
     private static void handleRedirectUrl(String url) {
         try {
             String query = URI.create(url).getQuery();
             if (query == null) return;
 
-            String code  = null;
-            String state = null;
-            String error = null;
-            String errorDesc = null;
-
+            String code = null, state = null, error = null, errorDesc = null;
             for (String part : query.split("&")) {
                 int eq = part.indexOf('=');
                 if (eq < 0) continue;
@@ -244,11 +237,9 @@ public class TheLauncherProject {
             }
 
             if (error != null && state != null) {
-                String msg = errorDesc != null ? errorDesc : error;
-                restServer.failAuth(state, msg);
+                restServer.failAuth(state, errorDesc != null ? errorDesc : error);
                 return;
             }
-
             if (code != null && state != null) {
                 restServer.submitAuthCode(code, state);
             }
@@ -270,7 +261,6 @@ public class TheLauncherProject {
                 mouseY[0] = e.getYOnScreen() - frame.getY();
                 dragging[0] = true;
             }
-
             @Override
             public void mouseReleased(MouseEvent e) { dragging[0] = false; }
         });
@@ -313,10 +303,34 @@ public class TheLauncherProject {
 
     private static void shutdown(boolean exitJvm) {
         if (!SHUTDOWN_STARTED.compareAndSet(false, true)) return;
+
+        // Reihenfolge ist entscheidend:
+        // 1. Frame verstecken damit kein weiteres Rendern angefordert wird
+        // 2. Browser schließen → JCEF stoppt onPaint-Calls
+        // 3. Kurz warten damit JCEF den laufenden Paint abschließen kann
+        // 4. RestServer stoppen
+        // 5. CefApp disposen
         JFrame frame = mainFrame;
-        if (frame != null && frame.isDisplayable()) SwingUtilities.invokeLater(frame::dispose);
+        if (frame != null && frame.isDisplayable()) {
+            SwingUtilities.invokeLater(() -> {
+                frame.setVisible(false);
+                frame.dispose();
+            });
+        }
+
+        CefBrowser browser = mainBrowser;
+        if (browser != null) {
+            try { browser.close(true); } catch (Exception ignored) {}
+            mainBrowser = null;
+        }
+
+        // JCEF braucht einen Moment um den laufenden Paint-Cycle abzuschließen
+        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+
         try { if (restServer != null) restServer.stop(); } catch (Exception ignored) {}
-        try { if (cefApp != null) cefApp.dispose(); }     catch (Exception ignored) {}
+
+        try { if (cefApp != null) cefApp.dispose(); } catch (Exception ignored) {}
+
         if (exitJvm) System.exit(0);
     }
 
