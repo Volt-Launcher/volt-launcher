@@ -4,12 +4,12 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>de.eztxm</groupId>
-    <artifactId>thelauncherproject</artifactId>
+    <groupId>app.voltlauncher</groupId>
+    <artifactId>volt-launcher</artifactId>
     <version>0.1.0</version>
     <packaging>jar</packaging>
 
-    <name>TheLauncherProject</name>
+    <name>VoltLauncher</name>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -82,7 +82,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>de.eztxm.thelauncherproject.TheLauncherProject</mainClass>
+                            <mainClass>app.voltlauncher.voltlauncher.VoltLauncher</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -98,7 +98,7 @@
                         <argument>-Djava.awt.headless=false</argument>
                         <argument>-classpath</argument>
                         <classpath/>
-                        <argument>de.eztxm.thelauncherproject.TheLauncherProject</argument>
+                        <argument>app.voltlauncher.voltlauncher.VoltLauncher</argument>
                     </arguments>
                     <cleanupDaemonThreads>false</cleanupDaemonThreads>
                 </configuration>

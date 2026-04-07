@@ -335,7 +335,7 @@ export function useModrinth(opts: UseModrinthOptions) {
       const res = await fetch(`${API_BASE}/search?${params}`, {
         signal: abortController.signal,
         headers: {
-          "User-Agent": "ezTxmMC/thelauncherproject (github.com/ezTxmMC)",
+          "User-Agent": "Volt-Launcher/volt-launcher",
         },
       });
 
@@ -419,7 +419,7 @@ export function useModrinthProject() {
       const res = await fetch(`${API_BASE}/project/${encodeURIComponent(slugOrId)}`, {
         signal: abortController.signal,
         headers: {
-          "User-Agent": "ezTxmMC/thelauncherproject (github.com/ezTxmMC)",
+          "User-Agent": "Volt-Launcher/volt-launcher",
         },
       });
 
