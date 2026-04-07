@@ -7,6 +7,7 @@ export interface AvailableVersion { id: string; type: string; releaseTime: strin
 export type MainTab = "home" | "profiles" | "skins" | "discover" | "settings";
 export interface JavaRuntime { version: number; path: string; }
 export type LaunchPhase = "idle" | "installing" | "launching" | "running" | "failed";
+export interface LauncherNotification { id: number; type: "error" | "info"; message: string; timestamp: number; }
 
 // ── Reactive state ──────────────────────────────────────────────────────────
 const authData = ref<AuthData | null>(null);
@@ -369,7 +370,7 @@ export function useLauncher() {
         includeSnapshots, includeBetas, includeAlphas,
         isAuthenticating, isLaunching, launchPhase, launchMessage,
         isCreatingInstance, isLoadingInstances, isLoadingVersions,
-        error, launcherMessage,
+        error, launcherMessage, notifications, unreadCount, formatNotifTime, clearNotification, clearAllNotifications,
         activeTab, showCreateModal, profileFilter, discoverTabActive, discoverPlatformActive, settingsNavItem, accentColor, toggleStates,
         uiScale, animationsEnabled, showFps,
         javaRuntimes, jvmArgs, minMemory, maxMemory,
