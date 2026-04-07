@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Icon } from "@iconify/vue";
-import CustomCheckbox from '@/components/CustomCheckbox.vue';
-import CustomSelect from '@/components/CustomSelect.vue';
 import { useLauncher } from '@/composables/useLauncher';
 
 const {
@@ -59,14 +57,14 @@ const versionOptions = computed(() => availableVersions.value.map((version) => (
           <div class="flex flex-col gap-1.5">
             <div class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">VERSIONSFILTER</div>
             <div class="mt-1.5 flex flex-wrap gap-2">
-              <CustomCheckbox v-model="includeSnapshots">Snapshots</CustomCheckbox>
-              <CustomCheckbox v-model="includeBetas">Betas</CustomCheckbox>
-              <CustomCheckbox v-model="includeAlphas">Alphas</CustomCheckbox>
+              <VoltCheckbox v-model="includeSnapshots">Snapshots</VoltCheckbox>
+              <VoltCheckbox v-model="includeBetas">Betas</VoltCheckbox>
+              <VoltCheckbox v-model="includeAlphas">Alphas</VoltCheckbox>
             </div>
           </div>
           <div class="flex flex-col gap-1.5">
             <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">MINECRAFT VERSION</label>
-            <CustomSelect
+            <VoltSelect
               v-model="selectedVersionId"
               :options="versionOptions"
               placeholder="Version wählen"

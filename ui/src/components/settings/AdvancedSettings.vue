@@ -2,7 +2,6 @@
 import { Icon } from "@iconify/vue";
 import { ref } from "vue";
 import { useLauncher } from "@/composables/useLauncher";
-import CustomSlider from "@/components/CustomSlider.vue";
 import { advancedToggles } from "./settingsData";
 
 const { toggleStates } = useLauncher();
@@ -22,8 +21,8 @@ const concurrentIO = ref(10);
         Configure download and I/O concurrency
       </div>
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <CustomSlider v-model="simultaneousDownloads" :min="1" :max="10" :step="1" label="Simultaneous Downloads" />
-        <CustomSlider v-model="concurrentIO" :min="1" :max="20" :step="1" label="Concurrent I/O" />
+        <VoltSlider v-model="simultaneousDownloads" :min="1" :max="10" :step="1" label="Simultaneous Downloads" />
+        <VoltSlider v-model="concurrentIO" :min="1" :max="20" :step="1" label="Concurrent I/O" />
       </div>
     </div>
 

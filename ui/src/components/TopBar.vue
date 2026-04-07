@@ -57,35 +57,21 @@ const navItems = [
 ] as const;
 </script>
 <template>
-  <header class="relative z-[60] flex min-h-[52px] shrink-0 flex-wrap items-center gap-2 border-b border-white/5 bg-[var(--header-bg)] px-3 py-3 backdrop-blur-2xl md:flex-nowrap md:px-4 md:py-0">
-    <div class="mr-2 flex items-center gap-2 md:mr-7">
-      <!--<div class="mr-2 hidden gap-[5px] md:flex">
-        <div class="h-3 w-3 rounded-full bg-[#ff5f57]"></div>
-        <div class="h-3 w-3 rounded-full bg-[#febc2e]"></div>
-        <div class="h-3 w-3 rounded-full bg-[#28c840]"></div>
-      </div>-->
-      <div class="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[7px] bg-gradient-to-br from-[var(--primary)] to-[var(--secondary)] text-white shadow-[var(--shadow-accent-lg)]">
-        <Icon icon="lucide:zap" class="size-4" />
-      </div>
-      <div class="whitespace-nowrap text-[length:var(--text-md)] font-bold tracking-[0.11em] text-white">
-        <span class="text-[var(--primary)]">VOLT</span>LAUNCHER
-      </div>
-    </div>
-    <nav class="order-3 flex w-full gap-1 md:order-none md:w-auto md:flex-1 md:gap-2">
-      <button
+  <!--<div class="mr-2 hidden gap-[5px] md:flex">
+    <div class="h-3 w-3 rounded-full bg-[#ff5f57]"></div>
+    <div class="h-3 w-3 rounded-full bg-[#febc2e]"></div>
+    <div class="h-3 w-3 rounded-full bg-[#28c840]"></div>
+  </div>-->
+  
+  <BaseHeader>
+    <nav class="flex w-full gap-2">
+      <NavButton
         v-for="item in navItems"
         :key="item.id"
-        type="button"
-        class="inline-flex cursor-pointer items-center justify-center gap-[7px] rounded-[7px] border p-2 text-[length:var(--text-base)] font-semibold tracking-[0.08em] transition-all duration-200 md:px-4 md:py-2"
-        :class="activeTab === item.id
-          ? 'border-[var(--accent-border)] bg-[var(--accent-bg)] text-white'
-          : 'border-transparent bg-transparent text-white/60 hover:bg-white/5 hover:text-white'"
-        :title="item.label"
-        @click="activeTab = item.id"
-      >
-        <Icon :icon="item.icon" class="size-[13px]" :class="activeTab === item.id ? 'text-[var(--primary)]' : ''" />
-        <span class="hidden md:inline">{{ item.label }}</span>
-      </button>
+        :item="item"
+        :active-tab="activeTab"
+        @select="activeTab = $event"
+      />
     </nav>
     <div class="ml-auto flex items-center gap-2">
       <div ref="notifMenuRef" class="relative">
@@ -228,5 +214,5 @@ const navItems = [
         </button>
       </div>
     </div>
-  </header>
+  </BaseHeader>
 </template>

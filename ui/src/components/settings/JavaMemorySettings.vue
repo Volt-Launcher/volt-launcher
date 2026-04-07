@@ -2,7 +2,6 @@
 import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
 import type { JavaRuntime } from "@/composables/useLauncher";
-import CustomSlider from "@/components/CustomSlider.vue";
 
 const { javaRuntimes, jvmArgs, minMemory, maxMemory } = useLauncher();
 
@@ -33,8 +32,8 @@ const updateVersion = (rt: JavaRuntime, raw: string) => {
         Configure minimum and maximum RAM for Minecraft
       </div>
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <CustomSlider v-model="minMemory" :min="1" :max="16" :step="1" label="Minimum (GB)" />
-        <CustomSlider v-model="maxMemory" :min="1" :max="32" :step="1" label="Maximum (GB)" />
+        <VoltSlider v-model="minMemory" :min="1" :max="16" :step="1" label="Minimum (GB)" />
+        <VoltSlider v-model="maxMemory" :min="1" :max="32" :step="1" label="Maximum (GB)" />
       </div>
     </div>
 

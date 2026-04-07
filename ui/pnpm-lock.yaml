@@ -26,6 +26,9 @@ importers:
       tailwindcss:
         specifier: ^4.2.2
         version: 4.2.2
+      volt-ui:
+        specifier: link:/mnt/Stuff/Development/Java/Volt-Launcher/volt-ui
+        version: link:../../../Volt-Launcher/volt-ui
       vue:
         specifier: ^3.5.32
         version: 3.5.32(typescript@5.9.3)
