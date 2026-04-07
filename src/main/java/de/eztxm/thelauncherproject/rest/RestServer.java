@@ -10,14 +10,16 @@ import io.javalin.http.staticfiles.Location;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.awt.*;
-import java.net.URI;
-
 public class RestServer {
 
     @FunctionalInterface
     public interface WindowAction {
         void execute();
+    }
+
+    @FunctionalInterface
+    public interface OpenUrlAction {
+        void open(String url);
     }
 
     private final int port;
@@ -27,20 +29,23 @@ public class RestServer {
     private final WindowAction minimizeWindowAction;
     private final WindowAction maximizeWindowAction;
     private final WindowAction closeWindowAction;
+    private final OpenUrlAction openUrlAction;
 
     public RestServer(int port) {
-        this(port, () -> {}, () -> {}, () -> {});
+        this(port, () -> {}, () -> {}, () -> {}, url -> {});
     }
 
     public RestServer(
             int port,
             WindowAction minimizeWindowAction,
             WindowAction maximizeWindowAction,
-            WindowAction closeWindowAction) {
+            WindowAction closeWindowAction,
+            OpenUrlAction openUrlAction) {
         this.port = port;
         this.minimizeWindowAction = minimizeWindowAction;
         this.maximizeWindowAction = maximizeWindowAction;
         this.closeWindowAction = closeWindowAction;
+        this.openUrlAction = openUrlAction;
         try {
             this.msAuth = new MicrosoftAuth();
             this.minecraftLauncher = new MinecraftLauncherService(msAuth.getClientId());
@@ -166,14 +171,12 @@ public class RestServer {
         app.get("/api/auth/login", ctx -> {
             try {
                 MicrosoftAuth.StartAuthResult start = msAuth.startAuthFlow();
-                if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                    Desktop.getDesktop().browse(URI.create(start.url()));
-                }
+                openUrlAction.open(start.url());
                 JSONObject json = new JSONObject();
                 json.put("success", true);
                 json.put("state", start.state());
                 json.put("url", start.url());
-                json.put("message", "Browser opened. After authentication you will be redirected back automatically.");
+                json.put("message", "Login window opened.");
                 ctx.contentType("application/json").result(json.toString());
             } catch (Exception e) {
                 JSONObject json = new JSONObject();
@@ -446,21 +449,21 @@ public class RestServer {
 
     private JSONObject toInstanceJson(LauncherInstance instance) {
         JSONObject json = new JSONObject();
-        json.put("name",           instance.name());
-        json.put("slug",           instance.slug());
-        json.put("versionId",      instance.versionId());
-        json.put("versionType",    instance.versionType());
-        json.put("createdAt",      instance.createdAt());
-        json.put("lastPlayedAt",   instance.lastPlayedAt());
+        json.put("name",             instance.name());
+        json.put("slug",             instance.slug());
+        json.put("versionId",        instance.versionId());
+        json.put("versionType",      instance.versionType());
+        json.put("createdAt",        instance.createdAt());
+        json.put("lastPlayedAt",     instance.lastPlayedAt());
         json.put("javaMajorVersion", instance.javaMajorVersion());
-        json.put("javaComponent",  instance.javaComponent());
+        json.put("javaComponent",    instance.javaComponent());
 
         RunningInstanceStatus running = minecraftLauncher.getRunningInstanceStatus(instance.name());
         json.put("running", running != null && running.alive());
         if (running != null) {
-            json.put("pid",                    running.pid());
-            json.put("startedAt",              running.startedAt());
-            json.put("javaExecutable",         running.javaExecutable());
+            json.put("pid",                     running.pid());
+            json.put("startedAt",               running.startedAt());
+            json.put("javaExecutable",          running.javaExecutable());
             json.put("runningJavaMajorVersion", running.javaMajorVersion());
         }
         return json;

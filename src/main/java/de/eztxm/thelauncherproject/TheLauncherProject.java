@@ -5,8 +5,6 @@ import de.eztxm.thelauncherproject.rest.RestServer;
 import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
-import org.cef.browser.CefFrame;
-import org.cef.handler.CefLifeSpanHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
@@ -31,12 +29,14 @@ public class TheLauncherProject {
                 7070,
                 TheLauncherProject::minimizeMainWindow,
                 TheLauncherProject::toggleMaximizeMainWindow,
-                TheLauncherProject::requestCloseMainWindow
+                TheLauncherProject::requestCloseMainWindow,
+                TheLauncherProject::openAuthPopup
         );
         restServer.start();
 
-        String[] cefArgs = Arrays.copyOf(args, args.length + 1);
-        cefArgs[args.length] = "--disable-features=OverlayScrollbar";
+        String[] cefArgs = Arrays.copyOf(args, args.length + 2);
+        cefArgs[args.length]     = "--disable-features=OverlayScrollbar";
+        cefArgs[args.length + 1] = "--disable-popup-blocking";
 
         Thread.ofVirtual().start(() -> {
             try {
@@ -55,41 +55,14 @@ public class TheLauncherProject {
         JFrame frame = new JFrame("TheLauncherProject");
         mainFrame = frame;
         frame.setSize(1280, 720);
-        frame.setTitle("TheLauncherProject");
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.setUndecorated(true);
         frame.getContentPane().setBackground(APP_BG);
 
         CefClient client = app.createClient();
-        attachPopupHandler(client, frame);
-
         CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
         Component browserUI = browser.getUIComponent();
-
-        browserUI.addMouseWheelListener(e -> {
-            e.consume();
-            int pixels = (int) (e.getPreciseWheelRotation() * 80);
-            int mouseX = e.getX();
-            int mouseY = e.getY();
-            browser.executeJavaScript("""
-        (function() {
-            var el = document.elementFromPoint(%d, %d);
-            while (el && el !== document.body) {
-                var style = getComputedStyle(el);
-                var overflow = style.overflow + style.overflowY;
-                if (overflow.includes('auto') || overflow.includes('scroll')) {
-                    el.scrollTop += %d;
-                    return;
-                }
-                el = el.parentElement;
-            }
-            window.scrollBy(0, %d);
-        })();
-    """.formatted(mouseX, mouseY, pixels, pixels),
-                    browser.getURL(), 0
-            );
-        });
 
         makeDraggable(frame, browserUI, 50);
 
@@ -106,6 +79,27 @@ public class TheLauncherProject {
             }
         });
 
+        browserUI.addMouseWheelListener(e -> {
+            e.consume();
+            int pixels = (int) (e.getPreciseWheelRotation() * 80);
+            int mx = e.getX();
+            int my = e.getY();
+            browser.executeJavaScript("""
+                (function() {
+                    var el = document.elementFromPoint(%d, %d);
+                    while (el && el !== document.body) {
+                        var s = getComputedStyle(el);
+                        if ((s.overflow + s.overflowY).match(/auto|scroll/)) {
+                            el.scrollTop += %d;
+                            return;
+                        }
+                        el = el.parentElement;
+                    }
+                    window.scrollBy(0, %d);
+                })();
+            """.formatted(mx, my, pixels, pixels), browser.getURL(), 0);
+        });
+
         browserUI.addComponentListener(new ComponentAdapter() {
             private Timer debounce;
 
@@ -117,9 +111,7 @@ public class TheLauncherProject {
                     debounce = new Timer(80, ev ->
                             browser.executeJavaScript(
                                     "window.dispatchEvent(new Event('resize'));",
-                                    browser.getURL(), 0
-                            )
-                    );
+                                    browser.getURL(), 0));
                     debounce.setRepeats(false);
                     debounce.start();
                 }
@@ -140,6 +132,46 @@ public class TheLauncherProject {
         frame.setVisible(true);
     }
 
+    private static void openAuthPopup(String url) {
+        SwingUtilities.invokeLater(() -> {
+            CefApp app = cefApp;
+            if (app == null) return;
+
+            CefClient popupClient = app.createClient();
+            CefBrowser popupBrowser = popupClient.createBrowser(url, true, false);
+            popupBrowser.setWindowlessFrameRate(60);
+
+            JFrame popup = new JFrame("Microsoft Login");
+            popup.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+            popup.setLayout(new BorderLayout());
+            popup.setSize(520, 760);
+            popup.setLocationRelativeTo(mainFrame);
+
+            Component popupUI = popupBrowser.getUIComponent();
+            popupUI.setFocusable(true);
+
+            popupUI.addMouseWheelListener(e -> {
+                e.consume();
+                int pixels = (int) (e.getPreciseWheelRotation() * 80);
+                popupBrowser.executeJavaScript(
+                        "window.scrollBy(0, " + pixels + ");",
+                        popupBrowser.getURL(), 0);
+            });
+
+            popup.add(popupUI, BorderLayout.CENTER);
+
+            popup.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosing(WindowEvent e) {
+                    popupBrowser.close(true);
+                    popup.dispose();
+                }
+            });
+
+            popup.setVisible(true);
+        });
+    }
+
     private static void makeDraggable(JFrame frame, Component dragComponent, int dragHeight) {
         final int[] mouseX = new int[1];
         final int[] mouseY = new int[1];
@@ -152,7 +184,6 @@ public class TheLauncherProject {
                     dragging[0] = false;
                     return;
                 }
-
                 mouseX[0] = e.getXOnScreen() - frame.getX();
                 mouseY[0] = e.getYOnScreen() - frame.getY();
                 dragging[0] = true;
@@ -167,63 +198,18 @@ public class TheLauncherProject {
         dragComponent.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
-                if (!dragging[0]) {
-                    return;
-                }
-
+                if (!dragging[0]) return;
                 frame.setLocation(
                         e.getXOnScreen() - mouseX[0],
-                        e.getYOnScreen() - mouseY[0]
-                );
+                        e.getYOnScreen() - mouseY[0]);
             }
         });
-    }
-
-    private static void attachPopupHandler(CefClient client, JFrame owner) {
-        client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
-            @Override
-            public boolean onBeforePopup(
-                    CefBrowser browser, CefFrame frame,
-                    String targetUrl, String targetFrameName) {
-                SwingUtilities.invokeLater(() -> openPopupWindow(targetUrl, owner));
-                return true;
-            }
-        });
-    }
-
-    private static void openPopupWindow(String url, JFrame owner) {
-        CefClient popupClient = cefApp.createClient();
-        CefBrowser popupBrowser = popupClient.createBrowser(url, true, false);
-        popupBrowser.setWindowlessFrameRate(90);
-
-        JFrame popup = new JFrame("Microsoft Login");
-        popup.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        popup.setLayout(new BorderLayout());
-        popup.add(popupBrowser.getUIComponent(), BorderLayout.CENTER);
-        popup.setSize(520, 760);
-        popup.setLocationRelativeTo(owner);
-        popup.setVisible(true);
-
-        popup.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                popupBrowser.close(true);
-                popup.dispose();
-            }
-        });
-    }
-
-    private static void shutdown() {
-        shutdown(true);
     }
 
     private static void minimizeMainWindow() {
         SwingUtilities.invokeLater(() -> {
             JFrame frame = mainFrame;
-            if (frame == null || !frame.isDisplayable()) {
-                return;
-            }
-
+            if (frame == null || !frame.isDisplayable()) return;
             frame.setState(Frame.ICONIFIED);
         });
     }
@@ -231,47 +217,36 @@ public class TheLauncherProject {
     private static void toggleMaximizeMainWindow() {
         SwingUtilities.invokeLater(() -> {
             JFrame frame = mainFrame;
-            if (frame == null || !frame.isDisplayable()) {
-                return;
-            }
-
+            if (frame == null || !frame.isDisplayable()) return;
             int state = frame.getExtendedState();
-            boolean isMaximized = (state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH;
-            frame.setExtendedState(isMaximized ? Frame.NORMAL : (state | Frame.MAXIMIZED_BOTH));
+            boolean maximized = (state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH;
+            frame.setExtendedState(maximized ? Frame.NORMAL : (state | Frame.MAXIMIZED_BOTH));
         });
     }
 
     private static void requestCloseMainWindow() {
         Thread.ofVirtual().start(() -> {
-            try {
-                Thread.sleep(75);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
+            try { Thread.sleep(75); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
             shutdown();
         });
     }
 
+    private static void shutdown() {
+        shutdown(true);
+    }
+
     private static void shutdown(boolean exitJvm) {
-        if (!SHUTDOWN_STARTED.compareAndSet(false, true)) {
-            return;
-        }
+        if (!SHUTDOWN_STARTED.compareAndSet(false, true)) return;
 
         JFrame frame = mainFrame;
         if (frame != null && frame.isDisplayable()) {
             SwingUtilities.invokeLater(frame::dispose);
         }
 
-        try {
-            if (restServer != null) restServer.stop();
-        } catch (Exception _) {}
-        try {
-            if (cefApp != null) cefApp.dispose();
-        } catch (Exception _) {}
+        try { if (restServer != null) restServer.stop(); } catch (Exception ignored) {}
+        try { if (cefApp != null) cefApp.dispose(); }     catch (Exception ignored) {}
 
-        if (exitJvm) {
-            System.exit(0);
-        }
+        if (exitJvm) System.exit(0);
     }
 
     private static void registerShutdownHook() {
@@ -280,33 +255,17 @@ public class TheLauncherProject {
 
     private static long resolveParentPid(String[] args) {
         for (String arg : args) {
-            if (!arg.startsWith("--parent-pid=")) {
-                continue;
-            }
-
-            try {
-                return Long.parseLong(arg.substring("--parent-pid=".length()));
-            } catch (NumberFormatException ignored) {
-                return -1;
-            }
+            if (!arg.startsWith("--parent-pid=")) continue;
+            try { return Long.parseLong(arg.substring("--parent-pid=".length())); }
+            catch (NumberFormatException ignored) { return -1; }
         }
-
-        return ProcessHandle.current()
-                .parent()
-                .map(ProcessHandle::pid)
-                .orElse(-1L);
+        return ProcessHandle.current().parent().map(ProcessHandle::pid).orElse(-1L);
     }
 
     private static void startParentExitWatcher(long parentPid) {
-        if (parentPid <= 0) {
-            return;
-        }
-
+        if (parentPid <= 0) return;
         ProcessHandle parent = ProcessHandle.of(parentPid).orElse(null);
-        if (parent == null) {
-            return;
-        }
-
+        if (parent == null) return;
         parent.onExit().thenRun(TheLauncherProject::shutdown);
     }
 }
