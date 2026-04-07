@@ -1,14 +1,22 @@
 package de.eztxm.thelauncherproject;
 
+import de.eztxm.thelauncherproject.auth.OAuthClient;
 import de.eztxm.thelauncherproject.jcef.JcefBootstrap;
 import de.eztxm.thelauncherproject.rest.RestServer;
 import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
+import org.cef.browser.CefFrame;
+import org.cef.handler.CefLoadHandlerAdapter;
+import org.cef.handler.CefRequestHandlerAdapter;
+import org.cef.network.CefRequest;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -34,9 +42,8 @@ public class TheLauncherProject {
         );
         restServer.start();
 
-        String[] cefArgs = Arrays.copyOf(args, args.length + 2);
-        cefArgs[args.length]     = "--disable-features=OverlayScrollbar";
-        cefArgs[args.length + 1] = "--disable-popup-blocking";
+        String[] cefArgs = Arrays.copyOf(args, args.length + 1);
+        cefArgs[args.length] = "--disable-features=OverlayScrollbar";
 
         Thread.ofVirtual().start(() -> {
             try {
@@ -132,16 +139,45 @@ public class TheLauncherProject {
         frame.setVisible(true);
     }
 
-    private static void openAuthPopup(String url) {
+    /**
+     * Öffnet ein JCEF-Popup mit dem Minecraft-gebrandeten Microsoft-Login.
+     * Sobald Microsoft zu oauth20_desktop.srf redirectet, fangen wir die URL ab,
+     * extrahieren code + state und schicken sie ans Backend.
+     */
+    private static void openAuthPopup(String authUrl) {
         SwingUtilities.invokeLater(() -> {
             CefApp app = cefApp;
             if (app == null) return;
 
+            JFrame[] popupRef = new JFrame[1];
+
             CefClient popupClient = app.createClient();
-            CefBrowser popupBrowser = popupClient.createBrowser(url, true, false);
+
+            // Redirect abfangen: wenn die URL mit oauth20_desktop.srf beginnt,
+            // sind code + state in den Query-Parametern
+            popupClient.addRequestHandler(new CefRequestHandlerAdapter() {
+                @Override
+                public boolean onBeforeBrowse(CefBrowser browser, CefFrame frame,
+                                              CefRequest request, boolean userGesture, boolean isRedirect) {
+                    String url = request.getURL();
+                    if (url != null && url.startsWith(OAuthClient.REDIRECT_URI)) {
+                        handleRedirectUrl(url);
+                        SwingUtilities.invokeLater(() -> {
+                            browser.close(true);
+                            JFrame popup = popupRef[0];
+                            if (popup != null) popup.dispose();
+                        });
+                        return true; // Navigation blockieren
+                    }
+                    return false;
+                }
+            });
+
+            CefBrowser popupBrowser = popupClient.createBrowser(authUrl, true, false);
             popupBrowser.setWindowlessFrameRate(60);
 
-            JFrame popup = new JFrame("Microsoft Login");
+            JFrame popup = new JFrame("Bei Minecraft anmelden");
+            popupRef[0] = popup;
             popup.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
             popup.setLayout(new BorderLayout());
             popup.setSize(520, 760);
@@ -149,7 +185,6 @@ public class TheLauncherProject {
 
             Component popupUI = popupBrowser.getUIComponent();
             popupUI.setFocusable(true);
-
             popupUI.addMouseWheelListener(e -> {
                 e.consume();
                 int pixels = (int) (e.getPreciseWheelRotation() * 80);
@@ -172,6 +207,46 @@ public class TheLauncherProject {
         });
     }
 
+    /**
+     * Parst code + state aus der Redirect-URL und schickt sie ans Backend.
+     */
+    private static void handleRedirectUrl(String url) {
+        try {
+            String query = URI.create(url).getQuery();
+            if (query == null) return;
+
+            String code  = null;
+            String state = null;
+            String error = null;
+            String errorDesc = null;
+
+            for (String part : query.split("&")) {
+                int eq = part.indexOf('=');
+                if (eq < 0) continue;
+                String key   = URLDecoder.decode(part.substring(0, eq),  StandardCharsets.UTF_8);
+                String value = URLDecoder.decode(part.substring(eq + 1), StandardCharsets.UTF_8);
+                switch (key) {
+                    case "code"              -> code      = value;
+                    case "state"             -> state     = value;
+                    case "error"             -> error     = value;
+                    case "error_description" -> errorDesc = value;
+                }
+            }
+
+            if (error != null && state != null) {
+                String msg = errorDesc != null ? errorDesc : error;
+                restServer.failAuth(state, msg);
+                return;
+            }
+
+            if (code != null && state != null) {
+                restServer.submitAuthCode(code, state);
+            }
+        } catch (Exception e) {
+            System.err.println("[Auth] Redirect-URL konnte nicht verarbeitet werden: " + e.getMessage());
+        }
+    }
+
     private static void makeDraggable(JFrame frame, Component dragComponent, int dragHeight) {
         final int[] mouseX = new int[1];
         final int[] mouseY = new int[1];
@@ -180,28 +255,21 @@ public class TheLauncherProject {
         dragComponent.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (e.getY() > dragHeight) {
-                    dragging[0] = false;
-                    return;
-                }
+                if (e.getY() > dragHeight) { dragging[0] = false; return; }
                 mouseX[0] = e.getXOnScreen() - frame.getX();
                 mouseY[0] = e.getYOnScreen() - frame.getY();
                 dragging[0] = true;
             }
 
             @Override
-            public void mouseReleased(MouseEvent e) {
-                dragging[0] = false;
-            }
+            public void mouseReleased(MouseEvent e) { dragging[0] = false; }
         });
 
         dragComponent.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (!dragging[0]) return;
-                frame.setLocation(
-                        e.getXOnScreen() - mouseX[0],
-                        e.getYOnScreen() - mouseY[0]);
+                frame.setLocation(e.getXOnScreen() - mouseX[0], e.getYOnScreen() - mouseY[0]);
             }
         });
     }
@@ -231,21 +299,14 @@ public class TheLauncherProject {
         });
     }
 
-    private static void shutdown() {
-        shutdown(true);
-    }
+    private static void shutdown() { shutdown(true); }
 
     private static void shutdown(boolean exitJvm) {
         if (!SHUTDOWN_STARTED.compareAndSet(false, true)) return;
-
         JFrame frame = mainFrame;
-        if (frame != null && frame.isDisplayable()) {
-            SwingUtilities.invokeLater(frame::dispose);
-        }
-
+        if (frame != null && frame.isDisplayable()) SwingUtilities.invokeLater(frame::dispose);
         try { if (restServer != null) restServer.stop(); } catch (Exception ignored) {}
         try { if (cefApp != null) cefApp.dispose(); }     catch (Exception ignored) {}
-
         if (exitJvm) System.exit(0);
     }
 

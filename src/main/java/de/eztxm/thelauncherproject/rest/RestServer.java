@@ -54,6 +54,23 @@ public class RestServer {
         }
     }
 
+    // Wird direkt von TheLauncherProject aufgerufen wenn JCEF den Redirect abfängt
+    public void submitAuthCode(String code, String state) {
+        Thread.ofVirtual().start(() -> {
+            try {
+                msAuth.handleAuthCode(code, state);
+            } catch (Exception e) {
+                System.err.println("[RestServer] Auth code exchange failed: " + e.getMessage());
+            }
+        });
+    }
+
+    public void failAuth(String state, String message) {
+        try {
+            msAuth.failAuthFlow(state, message);
+        } catch (Exception ignored) {}
+    }
+
     public void start() {
         app = Javalin.create(config -> {
             config.staticFiles.add(staticFiles -> {
@@ -65,7 +82,6 @@ public class RestServer {
             config.router.mount(router -> router.beforeMatched(ctx -> {
                 String path = ctx.path();
                 if (!path.startsWith("/api")
-                        && !path.startsWith("/callback")
                         && !path.contains(".")
                         && !"/".equals(path)
                         && !path.startsWith("/assets")) {
@@ -174,9 +190,8 @@ public class RestServer {
                 openUrlAction.open(start.url());
                 JSONObject json = new JSONObject();
                 json.put("success", true);
-                json.put("state", start.state());
-                json.put("url", start.url());
-                json.put("message", "Login window opened.");
+                json.put("state",   start.state());
+                json.put("url",     start.url());
                 ctx.contentType("application/json").result(json.toString());
             } catch (Exception e) {
                 JSONObject json = new JSONObject();
@@ -231,9 +246,9 @@ public class RestServer {
 
             if (status == AuthFlowStatus.SUCCESS && pending.result() != null) {
                 AuthResult result = pending.result();
-                json.put("success", true);
-                json.put("status", "success");
-                json.put("uuid", result.uuid());
+                json.put("success",  true);
+                json.put("status",   "success");
+                json.put("uuid",     result.uuid());
                 json.put("username", result.username());
                 msAuth.clearAuthState(state);
                 ctx.contentType("application/json").result(json.toString());
@@ -241,42 +256,10 @@ public class RestServer {
             }
 
             json.put("success", false);
-            json.put("status", "error");
-            json.put("error", pending.errorMessage() != null ? pending.errorMessage() : "Authentication failed");
+            json.put("status",  "error");
+            json.put("error",   pending.errorMessage() != null ? pending.errorMessage() : "Authentication failed");
             msAuth.clearAuthState(state);
             ctx.contentType("application/json").result(json.toString());
-        });
-
-        app.post("/api/auth/submit", ctx -> {
-            String code  = ctx.formParam("code");
-            if (code == null)  code  = ctx.queryParam("code");
-            String state = ctx.formParam("state");
-            if (state == null) state = ctx.queryParam("state");
-
-            if (code == null || state == null) {
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error", "Missing code or state");
-                ctx.status(400).contentType("application/json").result(json.toString());
-                return;
-            }
-
-            try {
-                AuthResult result = msAuth.handleAuthCode(code, state);
-                JSONObject json = new JSONObject();
-                json.put("success", true);
-                json.put("uuid", result.uuid());
-                json.put("username", result.username());
-                msAuth.clearAuthState(state);
-                ctx.contentType("application/json").result(json.toString());
-            } catch (Exception e) {
-                logError("Authentication submit failed", e);
-                JSONObject json = new JSONObject();
-                json.put("success", false);
-                json.put("error", e.getMessage());
-                msAuth.clearAuthState(state);
-                ctx.status(500).contentType("application/json").result(json.toString());
-            }
         });
 
         app.post("/api/instances/{name}/launch", ctx -> {
@@ -284,25 +267,25 @@ public class RestServer {
             try {
                 LaunchResult result = minecraftLauncher.launchInstance(msAuth.getLaunchSession(), instanceName);
                 JSONObject json = new JSONObject();
-                json.put("success", true);
-                json.put("instanceName", result.instanceName());
-                json.put("version", result.versionId());
-                json.put("pid", result.pid());
-                json.put("command", result.launchCommand());
-                json.put("logFile", result.logFile());
+                json.put("success",          true);
+                json.put("instanceName",     result.instanceName());
+                json.put("version",          result.versionId());
+                json.put("pid",              result.pid());
+                json.put("command",          result.launchCommand());
+                json.put("logFile",          result.logFile());
                 json.put("javaMajorVersion", result.javaMajorVersion());
-                json.put("javaExecutable", result.javaExecutable());
+                json.put("javaExecutable",   result.javaExecutable());
                 ctx.contentType("application/json").result(json.toString());
             } catch (IllegalStateException e) {
                 JSONObject json = new JSONObject();
                 json.put("success", false);
-                json.put("error", e.getMessage());
+                json.put("error",   e.getMessage());
                 ctx.status(400).contentType("application/json").result(json.toString());
             } catch (Exception e) {
                 logError("Minecraft launch failed", e);
                 JSONObject json = new JSONObject();
                 json.put("success", false);
-                json.put("error", e.getMessage());
+                json.put("error",   e.getMessage());
                 ctx.status(500).contentType("application/json").result(json.toString());
             }
         });
@@ -312,89 +295,37 @@ public class RestServer {
             try {
                 boolean stopped = minecraftLauncher.stopInstance(instanceName);
                 JSONObject json = new JSONObject();
-                json.put("success", true);
+                json.put("success",      true);
                 json.put("instanceName", instanceName);
-                json.put("stopped", stopped);
+                json.put("stopped",      stopped);
                 ctx.contentType("application/json").result(json.toString());
             } catch (IllegalStateException e) {
                 JSONObject json = new JSONObject();
                 json.put("success", false);
-                json.put("error", e.getMessage());
+                json.put("error",   e.getMessage());
                 ctx.status(400).contentType("application/json").result(json.toString());
             } catch (Exception e) {
                 logError("Stopping instance failed", e);
                 JSONObject json = new JSONObject();
                 json.put("success", false);
-                json.put("error", e.getMessage());
+                json.put("error",   e.getMessage());
                 ctx.status(500).contentType("application/json").result(json.toString());
             }
         });
 
         app.post("/api/window/minimize", ctx -> {
-            try {
-                minimizeWindowAction.execute();
-                ctx.contentType("application/json").result("{\"success\":true}");
-            } catch (Exception e) {
-                ctx.status(500).contentType("application/json")
-                        .result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}");
-            }
+            try { minimizeWindowAction.execute(); ctx.contentType("application/json").result("{\"success\":true}"); }
+            catch (Exception e) { ctx.status(500).contentType("application/json").result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}"); }
         });
 
         app.post("/api/window/maximize", ctx -> {
-            try {
-                maximizeWindowAction.execute();
-                ctx.contentType("application/json").result("{\"success\":true}");
-            } catch (Exception e) {
-                ctx.status(500).contentType("application/json")
-                        .result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}");
-            }
+            try { maximizeWindowAction.execute(); ctx.contentType("application/json").result("{\"success\":true}"); }
+            catch (Exception e) { ctx.status(500).contentType("application/json").result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}"); }
         });
 
         app.post("/api/window/close", ctx -> {
-            try {
-                closeWindowAction.execute();
-                ctx.contentType("application/json").result("{\"success\":true}");
-            } catch (Exception e) {
-                ctx.status(500).contentType("application/json")
-                        .result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}");
-            }
-        });
-
-        app.get("/callback", ctx -> {
-            String code             = ctx.queryParam("code");
-            String state            = ctx.queryParam("state");
-            String error            = ctx.queryParam("error");
-            String errorDescription = ctx.queryParam("error_description");
-
-            if (error != null) {
-                String msg = errorDescription != null ? errorDescription : error;
-                if (state != null && !state.isBlank()) {
-                    try { msAuth.failAuthFlow(state, msg); } catch (IllegalStateException ignored) {}
-                }
-                ctx.status(400).html(buildCallbackPage("Microsoft login failed", msg, false));
-                return;
-            }
-
-            if (code == null || state == null) {
-                ctx.status(400).html(buildCallbackPage(
-                        "Microsoft login failed",
-                        "Missing code or state parameter. Please retry the login.",
-                        false));
-                return;
-            }
-
-            try {
-                AuthResult result = msAuth.handleAuthCode(code, state);
-                ctx.html(buildCallbackPage(
-                        "Microsoft login successful",
-                        "Welcome, " + result.username() + "! You can close this window.",
-                        true));
-            } catch (IllegalStateException e) {
-                ctx.status(400).html(buildCallbackPage("Microsoft login failed", e.getMessage(), false));
-            } catch (Exception e) {
-                logError("Authentication callback failed", e);
-                ctx.status(500).html(buildCallbackPage("Microsoft login failed", e.getMessage(), false));
-            }
+            try { closeWindowAction.execute(); ctx.contentType("application/json").result("{\"success\":true}"); }
+            catch (Exception e) { ctx.status(500).contentType("application/json").result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}"); }
         });
 
         System.out.println("Javalin server started on http://localhost:" + port);
@@ -402,49 +333,7 @@ public class RestServer {
 
     public void stop() {
         minecraftLauncher.stopAllRunningInstances();
-        if (app != null) {
-            app.stop();
-        }
-    }
-
-    private String buildCallbackPage(String title, String message, boolean success) {
-        String safeTitle   = escapeHtml(title);
-        String safeMessage = escapeHtml(message != null ? message : "Authentication finished.");
-        String accent      = success ? "#16a34a" : "#dc2626";
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>%s</title>
-                    <script>window.addEventListener('load', () => setTimeout(() => window.close(), 1200));</script>
-                    <style>
-                        body { margin:0; min-height:100vh; display:grid; place-items:center;
-                               background:#111827; color:#f9fafb; font-family:Arial,sans-serif; }
-                        main { max-width:28rem; padding:2rem; border-radius:1rem;
-                               background:#1f2937; box-shadow:0 20px 45px rgba(0,0,0,.35); text-align:center; }
-                        h1 { margin-top:0; color:%s; }
-                        p  { line-height:1.5; word-break:break-word; }
-                        button { margin-top:1rem; border:0; border-radius:9999px; padding:.8rem 1.2rem;
-                                 font-weight:700; cursor:pointer; color:white; background:%s; }
-                    </style>
-                </head>
-                <body>
-                    <main><h1>%s</h1><p>%s</p><button onclick="window.close()">Close window</button></main>
-                </body>
-                </html>
-                """.formatted(safeTitle, accent, accent, safeTitle, safeMessage);
-    }
-
-    private String escapeHtml(String value) {
-        if (value == null) return "";
-        return value
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;");
+        if (app != null) app.stop();
     }
 
     private JSONObject toInstanceJson(LauncherInstance instance) {

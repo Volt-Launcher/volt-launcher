@@ -16,10 +16,11 @@ public final class OAuthClient {
 
     private static final String AUTHORIZE_ENDPOINT = "https://login.live.com/oauth20_authorize.srf";
     private static final String TOKEN_ENDPOINT     = "https://login.live.com/oauth20_token.srf";
-    private static final String SCOPE              = "XboxLive.signin XboxLive.offline_access";
+    // Einzige erlaubte Redirect-URI für den Xbox Live Public Client
+    public  static final String REDIRECT_URI       = "https://login.live.com/oauth20_desktop.srf";
+    private static final String SCOPE              = "XboxLive.signin offline_access";
 
     private final String clientId;
-    private final String redirectUri;
     private final HttpFetcher http;
 
     public record TokenResponse(
@@ -27,18 +28,16 @@ public final class OAuthClient {
             String refreshToken,
             long accessTokenExpiresAt) {}
 
-    public OAuthClient(String clientId, String redirectUri, HttpFetcher http) {
-        this.clientId    = clientId;
-        this.redirectUri = redirectUri;
-        this.http        = http;
+    public OAuthClient(String clientId, HttpFetcher http) {
+        this.clientId = clientId;
+        this.http     = http;
     }
 
     public String buildAuthUrl(String state, String codeVerifier) {
         return AUTHORIZE_ENDPOINT + "?" + String.join("&",
                 param("client_id",             clientId),
                 param("response_type",         "code"),
-                param("redirect_uri",          redirectUri),
-                param("response_mode",         "query"),
+                param("redirect_uri",          REDIRECT_URI),
                 param("scope",                 SCOPE),
                 param("prompt",                "select_account"),
                 param("state",                 state),
@@ -51,7 +50,7 @@ public final class OAuthClient {
         fields.put("client_id",     clientId);
         fields.put("grant_type",    "authorization_code");
         fields.put("code",          code);
-        fields.put("redirect_uri",  redirectUri);
+        fields.put("redirect_uri",  REDIRECT_URI);
         fields.put("scope",         SCOPE);
         fields.put("code_verifier", codeVerifier);
         return parseTokenResponse(http.postForm(TOKEN_ENDPOINT, fields), null);

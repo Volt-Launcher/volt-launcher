@@ -1,13 +1,13 @@
 import { computed, ref, watch, type WatchStopHandle } from "vue";
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────
 export interface AuthData { uuid: string; username: string; }
 export interface LauncherInstance { name: string; slug: string; versionId: string; versionType: string; createdAt: number; lastPlayedAt: number; javaMajorVersion: number; javaComponent: string; running: boolean; pid?: number; startedAt?: number; javaExecutable?: string; runningJavaMajorVersion?: number; }
 export interface AvailableVersion { id: string; type: string; releaseTime: string; }
 export type MainTab = "home" | "profiles" | "skins" | "discover" | "settings";
 export interface JavaRuntime { version: number; path: string; }
 
-// ── Reactive state ─────────────────────────────────────────────────────────
+// ── Reactive state ──────────────────────────────────────────────────────────
 const authData = ref<AuthData | null>(null);
 const instances = ref<LauncherInstance[]>([]);
 const availableVersions = ref<AvailableVersion[]>([]);
@@ -24,9 +24,8 @@ const isLoadingInstances = ref(false);
 const isLoadingVersions = ref(false);
 const error = ref<string | null>(null);
 const launcherMessage = ref<string | null>(null);
-const authUrl = ref("");
 
-// ── UI state ───────────────────────────────────────────────────────────────
+// ── UI state ────────────────────────────────────────────────────────────────
 const activeTab = ref<MainTab>("home");
 const showCreateModal = ref(false);
 const profileFilter = ref("ALL");
@@ -39,226 +38,212 @@ const uiScale = ref<"compact" | "default" | "comfortable">("default");
 const animationsEnabled = ref(true);
 const showFps = ref(false);
 const javaRuntimes = ref<JavaRuntime[]>([
-  { version: 8, path: "" },
-  { version: 17, path: "" },
-  { version: 21, path: "" },
+    { version: 8, path: "" },
+    { version: 17, path: "" },
+    { version: 21, path: "" },
 ]);
 const jvmArgs = ref("-XX:+UseG1GC -XX:+ParallelRefProcEnabled");
 const minMemory = ref(2);
 const maxMemory = ref(4);
 
-// ── Internal ───────────────────────────────────────────────────────────────
-let authPopup: Window | null = null;
+// ── Internal ────────────────────────────────────────────────────────────────
 let authState = "";
-let authStartedAt = 0;
 let authPollInterval: ReturnType<typeof window.setInterval> | null = null;
 let instancePollInterval: ReturnType<typeof window.setInterval> | null = null;
 let versionsUnwatch: WatchStopHandle | null = null;
 
-// ── Computed ───────────────────────────────────────────────────────────────
+// ── Computed ────────────────────────────────────────────────────────────────
 const selectedInstance = computed(() => instances.value.find((i) => i.name === selectedInstanceName.value) ?? null);
 const runningInstancesCount = computed(() => instances.value.filter((i) => i.running).length);
 const selectedVersion = computed(() => availableVersions.value.find((v) => v.id === selectedVersionId.value) ?? null);
 const playerName = computed(() => authData.value?.username ?? "");
 const playerSkinUrl = computed(() => `https://crafatar.com/renders/body/${encodeURIComponent(playerName.value || "MHF_Steve")}?overlay&scale=10`);
 const playerSkinFallback = computed(() => `https://mc-heads.net/body/${encodeURIComponent(playerName.value || "MHF_Steve")}/300`);
-// Raw 64×64 skin texture for skinview3d — falls back to Steve
 const playerSkinTextureUrl = computed(() =>
-  authData.value?.uuid
-    ? `https://mineskin.eu/skin/${encodeURIComponent(authData.value.uuid)}`
-    : "https://mineskin.eu/skin/MHF_Steve",
+    authData.value?.uuid
+        ? `https://mineskin.eu/skin/${encodeURIComponent(authData.value.uuid)}`
+        : "https://mineskin.eu/skin/MHF_Steve",
 );
 const playerAvatarUrl = computed(() => `https://crafatar.com/avatars/${encodeURIComponent(playerName.value || "MHF_Steve")}?size=24&overlay`);
 const playerAvatarFallback = computed(() => `https://mc-heads.net/avatar/${encodeURIComponent(playerName.value || "MHF_Steve")}/24`);
 const filteredInstances = computed(() => profileFilter.value === "ALL" ? instances.value : instances.value.filter((i) => i.versionType.toLowerCase().includes(profileFilter.value.toLowerCase())));
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 export const versionEmoji = (t: string) => ({ release: "📦", snapshot: "🔬", old_beta: "⚗️", old_alpha: "⚔️" }[t] ?? "🎮");
 export const versionGradient = (t: string) => ({ release: "linear-gradient(135deg,#0d3a18,#184d22)", snapshot: "linear-gradient(135deg,#0a2040,#001535)", old_beta: "linear-gradient(135deg,#3a1a08,#5a2a10)", old_alpha: "linear-gradient(135deg,#4d0f0f,#7a1a1a)" }[t] ?? "linear-gradient(135deg,#0a1535,#122050)");
-export const formatRelativeDate = (ts: number) => { if (!ts) return "Nie gespielt"; const d = Date.now() - ts, m = Math.floor(d / 6e4), h = Math.floor(d / 36e5), dy = Math.floor(d / 864e5), w = Math.floor(dy / 7), mo = Math.floor(dy / 30); if (m < 1) return "gerade eben"; if (m < 60) return `vor ${m}min`; if (h < 24) return `vor ${h}h`; if (dy < 7) return `vor ${dy}T`; if (w < 5) return `vor ${w}W`; return `vor ${mo}M`; };
+export const formatRelativeDate = (ts: number) => { if (!ts) return "Nie gespielt"; const d = Date.now() - ts, m = Math.floor(d / 6e4), h = Math.floor(d / 36e5), dy = Math.floor(d / 864e5), w = Math.floor(dy / 7), mo = Math.floor(dy / 30); if (m < 1) return "gerade eben"; if (m < 60) return `vor ${m}min`; if (m < 60) return `vor ${m}min`; if (h < 24) return `vor ${h}h`; if (dy < 7) return `vor ${dy}T`; if (w < 5) return `vor ${w}W`; return `vor ${mo}M`; };
 export const formatVersionType = (t: string) => ({ release: "Release", snapshot: "Snapshot", old_beta: "Beta", old_alpha: "Alpha" }[t] ?? t);
 export const formatReleaseTime = (rt: string) => { if (!rt) return "Unbekannt"; const d = new Date(rt); return Number.isNaN(d.getTime()) ? rt : d.toLocaleDateString("de-DE"); };
 export const handleImgError = (event: Event) => { const img = event.target as HTMLImageElement; const fb = img.dataset.fallbackSrc; if (fb && img.src !== fb) img.src = fb; };
 
-// ── API helper ─────────────────────────────────────────────────────────────
+// ── API helper ──────────────────────────────────────────────────────────────
 const apiFetch = async <T>(url: string, init?: RequestInit): Promise<T> => {
-  const r = await fetch(url, init);
-  return r.json() as Promise<T>;
+    const r = await fetch(url, init);
+    return r.json() as Promise<T>;
 };
 
-// ── Auth ───────────────────────────────────────────────────────────────────
-const stopAuth = (closePopup = false) => {
-  if (authPollInterval !== null) { window.clearInterval(authPollInterval); authPollInterval = null; }
-  if (closePopup && authPopup && !authPopup.closed) authPopup.close();
-  authPopup = null; authState = ""; authStartedAt = 0; authUrl.value = "";
+// ── Auth ────────────────────────────────────────────────────────────────────
+const stopAuth = () => {
+    if (authPollInterval !== null) { window.clearInterval(authPollInterval); authPollInterval = null; }
+    authState = "";
 };
 
 const pollAuthStatus = async () => {
-  if (!authState) return;
-  try {
-    const d = await apiFetch<{ success: boolean; status: string; uuid?: string; username?: string; error?: string }>(`/api/auth/status?state=${encodeURIComponent(authState)}`);
-    if (d.status === "pending") {
-      if (authPopup?.closed && Date.now() - authStartedAt > 10_000) {
-        error.value = "Das Login-Fenster wurde geschlossen.";
-        isAuthenticating.value = false;
-        stopAuth();
-      }
-      return;
+    if (!authState) return;
+    try {
+        const d = await apiFetch<{ success: boolean; status: string; uuid?: string; username?: string; error?: string }>(
+            `/api/auth/status?state=${encodeURIComponent(authState)}`
+        );
+        if (d.status === "pending") return;
+        if (d.status === "success" && d.uuid && d.username) {
+            authData.value = { uuid: d.uuid, username: d.username };
+            error.value = null;
+        } else {
+            error.value = d.error ?? "Authentifizierung fehlgeschlagen";
+        }
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Authentifizierungsstatus konnte nicht geprüft werden";
     }
-    if (d.status === "success" && d.uuid && d.username) {
-      authData.value = { uuid: d.uuid, username: d.username };
-      error.value = null;
-    } else {
-      error.value = d.error ?? "Authentifizierung fehlgeschlagen";
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Authentifizierungsstatus konnte nicht geprüft werden";
-  }
-  isAuthenticating.value = false;
-  stopAuth(true);
+    isAuthenticating.value = false;
+    stopAuth();
 };
 
 const handleLogin = async () => {
-  try {
-    isAuthenticating.value = true;
-    error.value = null;
-    const d = await apiFetch<{ success: boolean; url?: string; state?: string; error?: string }>("/api/auth/login");
-    if (!d.success || !d.url || !d.state) {
-      error.value = d.error ?? "Authentifizierung fehlgeschlagen";
-      isAuthenticating.value = false;
-      return;
+    try {
+        isAuthenticating.value = true;
+        error.value = null;
+
+        // Backend öffnet das Minecraft-gebrandete Login-Popup und gibt uns den state zurück
+        const d = await apiFetch<{ success: boolean; state?: string; url?: string; error?: string }>("/api/auth/login");
+
+        if (!d.success || !d.state) {
+            error.value = d.error ?? "Authentifizierung fehlgeschlagen";
+            isAuthenticating.value = false;
+            return;
+        }
+
+        authState = d.state;
+
+        // Polling bis Microsoft zurück zu /callback redirectet und Backend den Code verarbeitet hat
+        authPollInterval = window.setInterval(() => { void pollAuthStatus(); }, 1500);
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Unbekannter Fehler";
+        isAuthenticating.value = false;
+        stopAuth();
     }
-    authUrl.value = d.url;
-    authState = d.state;
-    authStartedAt = Date.now();
-    authPopup = window.open(d.url, "Microsoft Login", "popup=yes,width=520,height=760");
-    if (!authPopup) {
-      error.value = "Das Login-Fenster konnte nicht geöffnet werden. Bitte Popups erlauben.";
-      isAuthenticating.value = false;
-      return;
-    }
-    authPopup.focus();
-    authPollInterval = window.setInterval(() => { void pollAuthStatus(); }, 1000);
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Unbekannter Fehler";
-    isAuthenticating.value = false;
-    stopAuth(true);
-  }
 };
 
 const handleLogout = async () => {
-  try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* ignore */ }
-  authData.value = null;
-  error.value = null;
-  launcherMessage.value = null;
+    try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* ignore */ }
+    authData.value = null;
+    error.value = null;
+    launcherMessage.value = null;
 };
 
-// ── Data loading ───────────────────────────────────────────────────────────
+// ── Data loading ─────────────────────────────────────────────────────────────
 const loadSession = async () => {
-  try {
-    const d = await apiFetch<{ success: boolean; authenticated: boolean; uuid?: string; username?: string; error?: string }>("/api/session");
-    if (d.authenticated && d.uuid && d.username) { authData.value = { uuid: d.uuid, username: d.username }; return; }
-    authData.value = null;
-    if (!d.success) error.value = d.error ?? "Session konnte nicht wiederhergestellt werden";
-  } catch (e) {
-    authData.value = null;
-    error.value = e instanceof Error ? e.message : "Session konnte nicht wiederhergestellt werden";
-  }
+    try {
+        const d = await apiFetch<{ success: boolean; authenticated: boolean; uuid?: string; username?: string; error?: string }>("/api/session");
+        if (d.authenticated && d.uuid && d.username) { authData.value = { uuid: d.uuid, username: d.username }; return; }
+        authData.value = null;
+        if (!d.success) error.value = d.error ?? "Session konnte nicht wiederhergestellt werden";
+    } catch (e) {
+        authData.value = null;
+        error.value = e instanceof Error ? e.message : "Session konnte nicht wiederhergestellt werden";
+    }
 };
 
 const loadInstances = async () => {
-  try {
-    isLoadingInstances.value = true;
-    const d = await apiFetch<{ success: boolean; instances?: LauncherInstance[]; error?: string }>("/api/instances");
-    if (!d.success) { error.value = d.error ?? "Profile konnten nicht geladen werden"; return; }
-    instances.value = d.instances ?? [];
-    if (!selectedInstanceName.value || !instances.value.some((i) => i.name === selectedInstanceName.value))
-      selectedInstanceName.value = instances.value[0]?.name ?? "";
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Profile konnten nicht geladen werden";
-  } finally { isLoadingInstances.value = false; }
+    try {
+        isLoadingInstances.value = true;
+        const d = await apiFetch<{ success: boolean; instances?: LauncherInstance[]; error?: string }>("/api/instances");
+        if (!d.success) { error.value = d.error ?? "Profile konnten nicht geladen werden"; return; }
+        instances.value = d.instances ?? [];
+        if (!selectedInstanceName.value || !instances.value.some((i) => i.name === selectedInstanceName.value))
+            selectedInstanceName.value = instances.value[0]?.name ?? "";
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Profile konnten nicht geladen werden";
+    } finally { isLoadingInstances.value = false; }
 };
 
 const loadVersions = async () => {
-  try {
-    isLoadingVersions.value = true;
-    const q = new URLSearchParams({ includeSnapshots: String(includeSnapshots.value), includeBetas: String(includeBetas.value), includeAlphas: String(includeAlphas.value) });
-    const d = await apiFetch<{ success: boolean; versions?: AvailableVersion[]; error?: string }>(`/api/instances/versions?${q}`);
-    if (!d.success) { error.value = d.error ?? "Versionen konnten nicht geladen werden"; return; }
-    availableVersions.value = d.versions ?? [];
-    if (!selectedVersionId.value || !availableVersions.value.some((v) => v.id === selectedVersionId.value))
-      selectedVersionId.value = availableVersions.value[0]?.id ?? "";
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Versionen konnten nicht geladen werden";
-  } finally { isLoadingVersions.value = false; }
+    try {
+        isLoadingVersions.value = true;
+        const q = new URLSearchParams({ includeSnapshots: String(includeSnapshots.value), includeBetas: String(includeBetas.value), includeAlphas: String(includeAlphas.value) });
+        const d = await apiFetch<{ success: boolean; versions?: AvailableVersion[]; error?: string }>(`/api/instances/versions?${q}`);
+        if (!d.success) { error.value = d.error ?? "Versionen konnten nicht geladen werden"; return; }
+        availableVersions.value = d.versions ?? [];
+        if (!selectedVersionId.value || !availableVersions.value.some((v) => v.id === selectedVersionId.value))
+            selectedVersionId.value = availableVersions.value[0]?.id ?? "";
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Versionen konnten nicht geladen werden";
+    } finally { isLoadingVersions.value = false; }
 };
 
-// ── Instance actions ───────────────────────────────────────────────────────
+// ── Instance actions ──────────────────────────────────────────────────────────
 const handleCreateInstance = async () => {
-  if (!newInstanceName.value.trim()) { error.value = "Bitte einen Profilnamen eingeben"; return; }
-  if (!selectedVersionId.value) { error.value = "Bitte eine Minecraft-Version wählen"; return; }
-  try {
-    isCreatingInstance.value = true;
-    error.value = null;
-    const d = await apiFetch<{ success: boolean; instance?: LauncherInstance; error?: string }>("/api/instances", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newInstanceName.value.trim(), versionId: selectedVersionId.value }),
-    });
-    if (!d.success || !d.instance) { error.value = d.error ?? "Profil konnte nicht erstellt werden"; return; }
-    launcherMessage.value = `Profil "${d.instance.name}" erfolgreich erstellt.`;
-    newInstanceName.value = "";
-    await loadInstances();
-    selectedInstanceName.value = d.instance.name;
-    showCreateModal.value = false;
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Profil konnte nicht erstellt werden";
-  } finally { isCreatingInstance.value = false; }
+    if (!newInstanceName.value.trim()) { error.value = "Bitte einen Profilnamen eingeben"; return; }
+    if (!selectedVersionId.value) { error.value = "Bitte eine Minecraft-Version wählen"; return; }
+    try {
+        isCreatingInstance.value = true;
+        error.value = null;
+        const d = await apiFetch<{ success: boolean; instance?: LauncherInstance; error?: string }>("/api/instances", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: newInstanceName.value.trim(), versionId: selectedVersionId.value }),
+        });
+        if (!d.success || !d.instance) { error.value = d.error ?? "Profil konnte nicht erstellt werden"; return; }
+        launcherMessage.value = `Profil "${d.instance.name}" erfolgreich erstellt.`;
+        newInstanceName.value = "";
+        await loadInstances();
+        selectedInstanceName.value = d.instance.name;
+        showCreateModal.value = false;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Profil konnte nicht erstellt werden";
+    } finally { isCreatingInstance.value = false; }
 };
 
 const handleLaunch = async () => {
-  if (!authData.value || !selectedInstance.value) return;
-  try {
-    isLaunching.value = true;
-    error.value = null;
-    const d = await apiFetch<{ success: boolean; instanceName?: string; version?: string; pid?: number; javaMajorVersion?: number; error?: string }>(
-      `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/launch`,
-      { method: "POST" },
-    );
-    if (!d.success) { error.value = d.error ?? "Minecraft konnte nicht gestartet werden"; return; }
-    launcherMessage.value = [d.instanceName ?? selectedInstance.value.name, d.version && `mit ${d.version}`, d.javaMajorVersion && `Java ${d.javaMajorVersion}`, d.pid && `PID ${d.pid}`].filter(Boolean).join(" ") + " gestartet.";
-    await loadInstances();
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Minecraft konnte nicht gestartet werden";
-  } finally { isLaunching.value = false; }
+    if (!authData.value || !selectedInstance.value) return;
+    try {
+        isLaunching.value = true;
+        error.value = null;
+        const d = await apiFetch<{ success: boolean; instanceName?: string; version?: string; pid?: number; javaMajorVersion?: number; error?: string }>(
+            `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/launch`,
+            { method: "POST" },
+        );
+        if (!d.success) { error.value = d.error ?? "Minecraft konnte nicht gestartet werden"; return; }
+        launcherMessage.value = [d.instanceName ?? selectedInstance.value.name, d.version && `mit ${d.version}`, d.javaMajorVersion && `Java ${d.javaMajorVersion}`, d.pid && `PID ${d.pid}`].filter(Boolean).join(" ") + " gestartet.";
+        await loadInstances();
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Minecraft konnte nicht gestartet werden";
+    } finally { isLaunching.value = false; }
 };
 
 const handleStop = async () => {
-  if (!selectedInstance.value) return;
-  try {
-    isLaunching.value = true;
-    error.value = null;
-    const d = await apiFetch<{ success: boolean; instanceName?: string; error?: string }>(
-      `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/stop`,
-      { method: "POST" },
-    );
-    if (!d.success) { error.value = d.error ?? "Profil konnte nicht gestoppt werden"; return; }
-    launcherMessage.value = `${d.instanceName ?? selectedInstance.value.name} erfolgreich gestoppt.`;
-    await loadInstances();
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Profil konnte nicht gestoppt werden";
-  } finally { isLaunching.value = false; }
+    if (!selectedInstance.value) return;
+    try {
+        isLaunching.value = true;
+        error.value = null;
+        const d = await apiFetch<{ success: boolean; instanceName?: string; error?: string }>(
+            `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/stop`,
+            { method: "POST" },
+        );
+        if (!d.success) { error.value = d.error ?? "Profil konnte nicht gestoppt werden"; return; }
+        launcherMessage.value = `${d.instanceName ?? selectedInstance.value.name} erfolgreich gestoppt.`;
+        await loadInstances();
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Profil konnte nicht gestoppt werden";
+    } finally { isLaunching.value = false; }
 };
 
 const handleWindowAction = async (action: "minimize" | "maximize" | "close") => {
-  try {
-    const d = await apiFetch<{ success: boolean; error?: string }>(`/api/window/${action}`, { method: "POST" });
-    if (!d.success) {
-      error.value = d.error ?? `Fensteraktion "${action}" fehlgeschlagen`;
+    try {
+        const d = await apiFetch<{ success: boolean; error?: string }>(`/api/window/${action}`, { method: "POST" });
+        if (!d.success) error.value = d.error ?? `Fensteraktion "${action}" fehlgeschlagen`;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : `Fensteraktion "${action}" fehlgeschlagen`;
     }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : `Fensteraktion "${action}" fehlgeschlagen`;
-  }
 };
 
 const handleWindowMinimize = async () => { await handleWindowAction("minimize"); };
@@ -267,61 +252,60 @@ const handleWindowClose = async () => { await handleWindowAction("close"); };
 
 const setAccentColor = (c: string) => { accentColor.value = c; };
 
-// ── Appearance helpers ─────────────────────────────────────────────────────
+// ── Appearance helpers ────────────────────────────────────────────────────────
 const uiScaleFactors: Record<string, number> = { compact: 0.88, default: 1, comfortable: 1.14 };
 const baseTextSizes: Record<string, number> = {
-  "--text-2xs": 12, "--text-2xs-plus": 12.5, "--text-xs": 13, "--text-sm": 13.5,
-  "--text-base": 14, "--text-base-plus": 14.5, "--text-md": 15, "--text-md-plus": 15.5,
-  "--text-lg": 16, "--text-xl": 18,
+    "--text-2xs": 12, "--text-2xs-plus": 12.5, "--text-xs": 13, "--text-sm": 13.5,
+    "--text-base": 14, "--text-base-plus": 14.5, "--text-md": 15, "--text-md-plus": 15.5,
+    "--text-lg": 16, "--text-xl": 18,
 };
 const applyUiScale = (scale: string) => {
-  const f = uiScaleFactors[scale] ?? 1;
-  const el = document.documentElement;
-  for (const [token, base] of Object.entries(baseTextSizes)) {
-    el.style.setProperty(token, `${+(base * f).toFixed(1)}px`);
-  }
+    const f = uiScaleFactors[scale] ?? 1;
+    const el = document.documentElement;
+    for (const [token, base] of Object.entries(baseTextSizes)) {
+        el.style.setProperty(token, `${+(base * f).toFixed(1)}px`);
+    }
 };
 const applyAnimations = (enabled: boolean) => {
-  document.documentElement.toggleAttribute("data-no-animations", !enabled);
+    document.documentElement.toggleAttribute("data-no-animations", !enabled);
 };
 
 watch(uiScale, (v) => applyUiScale(v), { immediate: true });
 watch(animationsEnabled, (v) => applyAnimations(v), { immediate: true });
 
-// ── Lifecycle ──────────────────────────────────────────────────────────────
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
 function init() {
-  void loadSession();
-  void loadInstances();
-  void loadVersions();
-  instancePollInterval = window.setInterval(() => { void loadInstances(); }, 3000);
-  versionsUnwatch = watch([includeSnapshots, includeBetas, includeAlphas], () => { void loadVersions(); });
+    void loadSession();
+    void loadInstances();
+    void loadVersions();
+    instancePollInterval = window.setInterval(() => { void loadInstances(); }, 3000);
+    versionsUnwatch = watch([includeSnapshots, includeBetas, includeAlphas], () => { void loadVersions(); });
 }
 
 function cleanup() {
-  stopAuth(true);
-  if (instancePollInterval !== null) { window.clearInterval(instancePollInterval); instancePollInterval = null; }
-  versionsUnwatch?.();
-  versionsUnwatch = null;
+    stopAuth();
+    if (instancePollInterval !== null) { window.clearInterval(instancePollInterval); instancePollInterval = null; }
+    versionsUnwatch?.();
+    versionsUnwatch = null;
 }
 
-// ── Public API ─────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 export function useLauncher() {
-  return {
-    authData, instances, availableVersions,
-    selectedInstanceName, newInstanceName, selectedVersionId,
-    includeSnapshots, includeBetas, includeAlphas,
-    isAuthenticating, isLaunching, isCreatingInstance, isLoadingInstances, isLoadingVersions,
-    error, launcherMessage, authUrl,
-    activeTab, showCreateModal, profileFilter, discoverTabActive, discoverPlatformActive, settingsNavItem, accentColor, toggleStates,
-    uiScale, animationsEnabled, showFps,
-    javaRuntimes, jvmArgs, minMemory, maxMemory,
-    selectedInstance, runningInstancesCount, selectedVersion,
-    playerName, playerSkinUrl, playerSkinFallback, playerSkinTextureUrl, playerAvatarUrl, playerAvatarFallback, filteredInstances,
-    versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime, handleImgError,
-    handleLogin, handleLogout, handleCreateInstance, handleLaunch, handleStop,
-    handleWindowMinimize, handleWindowMaximize, handleWindowClose,
-    loadInstances, loadVersions, setAccentColor,
-    init, cleanup,
-  };
+    return {
+        authData, instances, availableVersions,
+        selectedInstanceName, newInstanceName, selectedVersionId,
+        includeSnapshots, includeBetas, includeAlphas,
+        isAuthenticating, isLaunching, isCreatingInstance, isLoadingInstances, isLoadingVersions,
+        error, launcherMessage,
+        activeTab, showCreateModal, profileFilter, discoverTabActive, discoverPlatformActive, settingsNavItem, accentColor, toggleStates,
+        uiScale, animationsEnabled, showFps,
+        javaRuntimes, jvmArgs, minMemory, maxMemory,
+        selectedInstance, runningInstancesCount, selectedVersion,
+        playerName, playerSkinUrl, playerSkinFallback, playerSkinTextureUrl, playerAvatarUrl, playerAvatarFallback, filteredInstances,
+        versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime, handleImgError,
+        handleLogin, handleLogout, handleCreateInstance, handleLaunch, handleStop,
+        handleWindowMinimize, handleWindowMaximize, handleWindowClose,
+        loadInstances, loadVersions, setAccentColor,
+        init, cleanup,
+    };
 }
-

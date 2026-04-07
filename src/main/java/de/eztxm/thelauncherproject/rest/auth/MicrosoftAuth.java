@@ -15,8 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class MicrosoftAuth {
 
-    private static final String CLIENT_ID    = "312b6922-bc5f-4eb8-919b-c5c4cd5d9944";
-    private static final String REDIRECT_URI = "http://localhost:7070/callback";
+    private static final String CLIENT_ID = "00000000402b5328";
 
     public record StartAuthResult(String state, String url) {}
 
@@ -27,7 +26,7 @@ public class MicrosoftAuth {
 
     public MicrosoftAuth() throws Exception {
         HttpFetcher http = new HttpFetcher();
-        this.oauthClient   = new OAuthClient(CLIENT_ID, REDIRECT_URI, http);
+        this.oauthClient   = new OAuthClient(CLIENT_ID, http);
         this.sessionManager = new SessionManager(
                 oauthClient,
                 new XboxAuthClient(http),
