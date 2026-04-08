@@ -1,4 +1,4 @@
-﻿package app.voltlauncher.voltlauncher.rest.routes.impl.window;
+package app.voltlauncher.voltlauncher.rest.routes.impl.window;
 
 import app.voltlauncher.voltlauncher.rest.MethodType;
 import app.voltlauncher.voltlauncher.rest.RestServer;

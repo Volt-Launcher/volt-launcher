@@ -1,4 +1,4 @@
-﻿package app.voltlauncher.voltlauncher.rest.routes.impl;
+package app.voltlauncher.voltlauncher.rest.routes.impl;
 
 import app.voltlauncher.voltlauncher.launcher.LaunchResult;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
