@@ -1,7 +1,7 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
 
-import app.voltlauncher.voltlauncher.launcher.AvailableVersion;
+import app.voltlauncher.voltlauncher.launcher.platform.version.AvailableVersion;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
 import app.voltlauncher.voltlauncher.rest.routes.Route;

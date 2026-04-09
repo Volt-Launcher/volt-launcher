@@ -1,4 +1,4 @@
-package app.voltlauncher.voltlauncher.launcher;
+package app.voltlauncher.voltlauncher.launcher.java;
 
 import app.voltlauncher.voltlauncher.AppPaths;
 

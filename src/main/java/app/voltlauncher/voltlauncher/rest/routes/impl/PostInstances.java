@@ -1,7 +1,7 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
 
-import app.voltlauncher.voltlauncher.launcher.LauncherInstance;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.rest.MethodType;
 import app.voltlauncher.voltlauncher.rest.RestServer;
@@ -26,7 +26,7 @@ public class PostInstances implements IRoute {
             String name = body.optString("name", "");
             String versionId = body.optString("versionId", "");
 
-            LauncherInstance instance = minecraftLauncher.createInstance(name, versionId);
+            Instance instance = minecraftLauncher.createInstance(name, versionId);
             JSONObject json = new JSONObject();
             json.put("success", true);
             json.put("instance", InstanceHelper.toInstanceJson(instance, this.minecraftLauncher));

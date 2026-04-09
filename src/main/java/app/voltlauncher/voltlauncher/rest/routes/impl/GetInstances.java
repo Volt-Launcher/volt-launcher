@@ -1,7 +1,7 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
 
-import app.voltlauncher.voltlauncher.launcher.LauncherInstance;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
 import app.voltlauncher.voltlauncher.rest.routes.Route;
@@ -22,7 +22,7 @@ public class GetInstances implements IRoute {
     public void execute(Context ctx) {
         try {
             JSONArray instances = new JSONArray();
-            for (LauncherInstance instance : minecraftLauncher.listInstances()) {
+            for (Instance instance : minecraftLauncher.listInstances()) {
                 instances.put(InstanceHelper.toInstanceJson(instance, this.minecraftLauncher));
             }
 

@@ -1,7 +1,7 @@
 package app.voltlauncher.voltlauncher.storage;
 
 import app.voltlauncher.voltlauncher.AppPaths;
-import app.voltlauncher.voltlauncher.launcher.LauncherInstance;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -17,7 +17,7 @@ public class LauncherInstanceStore {
 
     private final Path storagePath = AppPaths.instancesMetadataPath();
 
-    public synchronized List<LauncherInstance> listInstances() throws Exception {
+    public synchronized List<Instance> listInstances() throws Exception {
         if (!Files.exists(storagePath)) {
             return new ArrayList<>();
         }
@@ -28,10 +28,10 @@ public class LauncherInstanceStore {
             return new ArrayList<>();
         }
 
-        List<LauncherInstance> result = new ArrayList<>();
+        List<Instance> result = new ArrayList<>();
         for (int i = 0; i < instances.length(); i++) {
             JSONObject instance = instances.getJSONObject(i);
-            result.add(new LauncherInstance(
+            result.add(new Instance(
                     instance.getString("name"),
                     instance.getString("slug"),
                     instance.getString("versionId"),
@@ -43,25 +43,25 @@ public class LauncherInstanceStore {
         }
 
         result.sort(Comparator
-                .comparingLong((LauncherInstance instance) -> instance.lastPlayedAt() > 0
+                .comparingLong((Instance instance) -> instance.lastPlayedAt() > 0
                         ? instance.lastPlayedAt()
                         : instance.createdAt())
                 .reversed()
-                .thenComparing(LauncherInstance::name, String.CASE_INSENSITIVE_ORDER));
+                .thenComparing(Instance::name, String.CASE_INSENSITIVE_ORDER));
         return result;
     }
 
-    public synchronized Optional<LauncherInstance> findByName(String name) throws Exception {
+    public synchronized Optional<Instance> findByName(String name) throws Exception {
         return listInstances().stream()
                 .filter(instance -> instance.name().equalsIgnoreCase(name))
                 .findFirst();
     }
 
-    public synchronized void saveInstances(List<LauncherInstance> instances) throws Exception {
+    public synchronized void saveInstances(List<Instance> instances) throws Exception {
         Files.createDirectories(storagePath.getParent());
 
         JSONArray array = new JSONArray();
-        for (LauncherInstance instance : instances) {
+        for (Instance instance : instances) {
             JSONObject json = new JSONObject();
             json.put("name", instance.name());
             json.put("slug", instance.slug());

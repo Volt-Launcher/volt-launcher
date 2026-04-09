@@ -1,6 +1,9 @@
 package app.voltlauncher.voltlauncher.rest;
 
 import app.voltlauncher.voltlauncher.launcher.*;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
+import app.voltlauncher.voltlauncher.launcher.instance.RunningInstanceStatus;
+import app.voltlauncher.voltlauncher.launcher.platform.version.AvailableVersion;
 import app.voltlauncher.voltlauncher.rest.auth.MicrosoftAuth;
 import app.voltlauncher.voltlauncher.rest.routes.impl.*;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetAuthStatus;
@@ -64,6 +67,7 @@ public class RestServer {
         this.routeManager.register(new GetSession(this.msAuth));
         this.routeManager.register(new GetInstances(this.minecraftLauncher));
         this.routeManager.register(new GetInstancesVersions(this.minecraftLauncher));
+        this.routeManager.register(new GetInstanceLoaderVersions(this.minecraftLauncher));
         this.routeManager.register(new PostInstances(this.minecraftLauncher));
         this.routeManager.register(new PostInstanceLaunch(this.minecraftLauncher, this.msAuth));
         this.routeManager.register(new GetInstanceLaunchStatus(this.minecraftLauncher));
@@ -117,7 +121,7 @@ public class RestServer {
         if (app != null) app.stop();
     }
 
-    private JSONObject toInstanceJson(LauncherInstance instance) {
+    private JSONObject toInstanceJson(Instance instance) {
         JSONObject json = new JSONObject();
         json.put("name",             instance.name());
         json.put("slug",             instance.slug());

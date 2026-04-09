@@ -1,5 +1,6 @@
-package app.voltlauncher.voltlauncher.launcher;
+package app.voltlauncher.voltlauncher.launcher.instance;
 
+import app.voltlauncher.voltlauncher.launcher.platform.version.resolver.VanillaVersionResolver;
 import app.voltlauncher.voltlauncher.storage.LauncherInstanceStore;
 import app.voltlauncher.voltlauncher.util.async.NamedLock;
 import org.json.JSONObject;
@@ -18,35 +19,41 @@ public final class InstanceManager {
     private static final String STORE_KEY = "instance-store";
 
     private final LauncherInstanceStore store;
-    private final VersionResolver versionResolver;
+    private final VanillaVersionResolver versionResolver;
     private final NamedLock lock = new NamedLock();
 
-    public InstanceManager(LauncherInstanceStore store, VersionResolver versionResolver) {
+    public InstanceManager(LauncherInstanceStore store, VanillaVersionResolver versionResolver) {
         this.store = store;
         this.versionResolver = versionResolver;
     }
 
-    public List<LauncherInstance> listInstances() throws Exception {
+    public List<Instance> listInstances() throws Exception {
         return upgradeJavaRequirements(store.listInstances());
     }
 
-    public LauncherInstance createInstance(String name, String versionId) throws Exception {
+    public Instance createInstance(String name, String versionId) throws Exception {
         String normalized = normalizeName(name);
         validateName(normalized);
-        VersionResolver.ManifestEntry entry = versionResolver.findEntry(versionId);
+        VanillaVersionResolver.ManifestEntry entry = versionResolver.findEntry(versionId);
         JSONObject meta = versionResolver.resolveMetadata(entry.id());
-        RequiredJava req = resolveRequiredJava(meta, entry.id());
+        return createInstance(normalized, entry.id(), entry.type(), meta);
+    }
+
+    public Instance createInstance(String name, String versionId, String versionType, JSONObject meta) throws Exception {
+        String normalized = normalizeName(name);
+        validateName(normalized);
+        RequiredJava req = resolveRequiredJava(meta, versionId);
 
         return lock.withLock(STORE_KEY, () -> {
             try {
-                List<LauncherInstance> instances = listInstances();
+                List<Instance> instances = listInstances();
                 if (instances.stream().anyMatch(i -> i.name().equalsIgnoreCase(normalized))) {
                     throw new IllegalStateException("An instance with this name already exists");
                 }
                 String slug = uniqueSlug(normalized, instances);
                 long now = System.currentTimeMillis();
-                LauncherInstance instance = new LauncherInstance(
-                        normalized, slug, entry.id(), entry.type(),
+                Instance instance = new Instance(
+                        normalized, slug, versionId, versionType,
                         now, 0L, req.majorVersion(), req.component());
                 Files.createDirectories(instance.gameDirectory());
                 instances.add(instance);
@@ -58,14 +65,33 @@ public final class InstanceManager {
         });
     }
 
-    public void markPlayed(LauncherInstance launched, long startedAt) throws Exception {
+    public void removeInstance(String name) throws Exception {
+        String normalized = normalizeName(name);
         lock.withLock(STORE_KEY, () -> {
             try {
-                List<LauncherInstance> instances = listInstances();
-                List<LauncherInstance> updated = new ArrayList<>(instances.size());
-                for (LauncherInstance i : instances) {
+                List<Instance> instances = listInstances();
+                List<Instance> updated = new ArrayList<>(instances.size());
+                for (Instance i : instances) {
+                    if (!i.name().equalsIgnoreCase(normalized)) {
+                        updated.add(i);
+                    }
+                }
+                store.saveInstances(updated);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        });
+    }
+
+    public void markPlayed(Instance launched, long startedAt) throws Exception {
+        lock.withLock(STORE_KEY, () -> {
+            try {
+                List<Instance> instances = listInstances();
+                List<Instance> updated = new ArrayList<>(instances.size());
+                for (Instance i : instances) {
                     if (i.name().equalsIgnoreCase(launched.name())) {
-                        updated.add(new LauncherInstance(
+                        updated.add(new Instance(
                                 i.name(), i.slug(), i.versionId(), i.versionType(),
                                 i.createdAt(), startedAt, i.javaMajorVersion(), i.javaComponent()));
                         continue;
@@ -80,7 +106,7 @@ public final class InstanceManager {
         });
     }
 
-    public LauncherInstance findByName(String name) throws Exception {
+    public Instance findByName(String name) throws Exception {
         return listInstances().stream()
                 .filter(i -> i.name().equalsIgnoreCase(name))
                 .findFirst()
@@ -100,11 +126,11 @@ public final class InstanceManager {
         return new RequiredJava(guessLegacyJava(versionId), "legacy-runtime");
     }
 
-    private List<LauncherInstance> upgradeJavaRequirements(List<LauncherInstance> instances) throws Exception {
+    private List<Instance> upgradeJavaRequirements(List<Instance> instances) throws Exception {
         boolean changed = false;
-        List<LauncherInstance> upgraded = new ArrayList<>(instances.size());
-        for (LauncherInstance i : instances) {
-            LauncherInstance up = ensureJavaReq(i);
+        List<Instance> upgraded = new ArrayList<>(instances.size());
+        for (Instance i : instances) {
+            Instance up = ensureJavaReq(i);
             upgraded.add(up);
             if (!up.equals(i)) {
                 changed = true;
@@ -116,13 +142,13 @@ public final class InstanceManager {
         return upgraded;
     }
 
-    private LauncherInstance ensureJavaReq(LauncherInstance i) throws Exception {
+    private Instance ensureJavaReq(Instance i) throws Exception {
         if (i.hasJavaRequirement()) {
             return i;
         }
         JSONObject meta = versionResolver.resolveMetadata(i.versionId());
         RequiredJava req = resolveRequiredJava(meta, i.versionId());
-        return new LauncherInstance(
+        return new Instance(
                 i.name(), i.slug(), i.versionId(), i.versionType(),
                 i.createdAt(), i.lastPlayedAt(), req.majorVersion(), req.component());
     }
@@ -164,13 +190,13 @@ public final class InstanceManager {
         return name.trim().replaceAll("\\s+", " ");
     }
 
-    private String uniqueSlug(String name, List<LauncherInstance> existing) {
+    private String uniqueSlug(String name, List<Instance> existing) {
         String base = slugify(name);
         if (base.isBlank()) {
             base = "instance";
         }
         Set<String> used = new HashSet<>();
-        for (LauncherInstance i : existing) {
+        for (Instance i : existing) {
             used.add(i.slug().toLowerCase(Locale.ROOT));
         }
         String slug = base;

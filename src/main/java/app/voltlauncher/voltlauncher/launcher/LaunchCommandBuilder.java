@@ -1,6 +1,7 @@
 package app.voltlauncher.voltlauncher.launcher;
 
 import app.voltlauncher.voltlauncher.auth.MinecraftAccountSession;
+import app.voltlauncher.voltlauncher.launcher.java.JavaRuntimeResolver;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -74,7 +75,7 @@ public final class LaunchCommandBuilder {
         v.put("version_type",        i.versionType());
         v.put("user_properties",     "{}");
         v.put("natives_directory",   i.nativesDirectory().toString());
-        v.put("launcher_name",       "TheLauncherProject");
+        v.put("launcher_name",       "VoltLauncher");
         v.put("launcher_version",    "0.1.0");
         v.put("classpath",           i.classpath());
         v.put("classpath_separator", File.pathSeparator);

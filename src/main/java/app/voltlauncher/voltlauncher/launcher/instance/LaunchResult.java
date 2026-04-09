@@ -1,3 +1,3 @@
-package app.voltlauncher.voltlauncher.launcher;
+package app.voltlauncher.voltlauncher.launcher.instance;
 
 public record LaunchResult(String instanceName, String versionId, long pid, String launchCommand, String logFile, int javaMajorVersion, String javaExecutable) {}

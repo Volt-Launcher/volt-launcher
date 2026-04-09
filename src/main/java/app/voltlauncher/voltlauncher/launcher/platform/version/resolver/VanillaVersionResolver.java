@@ -1,5 +1,7 @@
-package app.voltlauncher.voltlauncher.launcher;
+package app.voltlauncher.voltlauncher.launcher.platform.version.resolver;
 
+import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
+import app.voltlauncher.voltlauncher.launcher.platform.version.AvailableVersion;
 import app.voltlauncher.voltlauncher.util.HttpFetcher;
 import app.voltlauncher.voltlauncher.util.JsonUtil;
 import app.voltlauncher.voltlauncher.util.async.SingleFlight;
@@ -8,18 +10,27 @@ import org.json.JSONObject;
 
 import java.util.*;
 
-public final class VersionResolver {
+public final class VanillaVersionResolver implements IVersionResolver {
 
     private static final String MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     private final HttpFetcher http;
     private final SingleFlight<JSONObject> flight = new SingleFlight<>();
 
-    public VersionResolver(HttpFetcher http) {
+    public VanillaVersionResolver(HttpFetcher http) {
         this.http = http;
     }
 
     public record ManifestEntry(String id, String type, String url, String releaseTime) {}
+
+    @Override
+    public List<AvailableVersion> listAvailableVersions() throws Exception {
+        List<AvailableVersion> versions = new ArrayList<>();
+        for (ManifestEntry entry : loadEntries()) {
+            versions.add(new AvailableVersion(entry.id(), entry.type(), entry.releaseTime()));
+        }
+        return versions;
+    }
 
     public List<ManifestEntry> loadEntries() throws Exception {
         JSONArray versions = JsonUtil.requireArray(http.getJson(MANIFEST_URL), "versions");
@@ -43,6 +54,7 @@ public final class VersionResolver {
                 .orElseThrow(() -> new IllegalStateException("Minecraft version not found: " + versionId));
     }
 
+    @Override
     public JSONObject resolveMetadata(String versionId) throws Exception {
         return flight.call(versionId, () -> resolveInternal(versionId, new HashSet<>()));
     }

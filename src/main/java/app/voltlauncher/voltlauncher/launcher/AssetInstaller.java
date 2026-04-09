@@ -1,6 +1,7 @@
 package app.voltlauncher.voltlauncher.launcher;
 
-import app.voltlauncher.voltlauncher.AppPaths;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
+import app.voltlauncher.voltlauncher.launcher.platform.version.resolver.VanillaVersionResolver;
 import app.voltlauncher.voltlauncher.util.HttpFetcher;
 import app.voltlauncher.voltlauncher.util.JsonUtil;
 import org.json.JSONArray;
@@ -22,7 +23,7 @@ import java.util.zip.ZipInputStream;
 public final class AssetInstaller {
 
     public record Installation(
-            LauncherInstance instance,
+            Instance instance,
             String launchVersionId,
             JSONObject launchMetadata,
             Path librariesDirectory,
@@ -39,28 +40,31 @@ public final class AssetInstaller {
     private static final int ASSET_CONCURRENCY = 16;
 
     private final HttpFetcher http;
-    private final VersionResolver versionResolver;
+    private final VanillaVersionResolver versionResolver;
 
-    public AssetInstaller(HttpFetcher http, VersionResolver versionResolver) {
+    public AssetInstaller(HttpFetcher http, VanillaVersionResolver versionResolver) {
         this.http = http;
         this.versionResolver = versionResolver;
     }
 
-    public Installation ensureInstallation(LauncherInstance instance, JSONObject meta) throws Exception {
+    public Installation ensureInstallation(Instance instance, JSONObject meta) throws Exception {
         String launchVersionId = instance.versionId();
         String clientVersionId = meta.optString("jar", launchVersionId);
+        String launchVersionFolder = safeVersionFolderName(launchVersionId);
+        String clientVersionFolder = safeVersionFolderName(clientVersionId);
         JSONObject clientMeta = clientVersionId.equals(launchVersionId)
                 ? meta
                 : versionResolver.resolveMetadata(clientVersionId);
 
-        Path mcDir       = AppPaths.minecraftDirectory();
+        // Keep each profile fully isolated: runtime artifacts live inside the instance directory.
+        Path mcDir       = instance.gameDirectory().resolve(".minecraft");
         Path versionsDir = mcDir.resolve("versions");
         Path libsDir     = mcDir.resolve("libraries");
         Path assetsDir   = mcDir.resolve("assets");
-        Path nativesDir  = mcDir.resolve("natives").resolve(instance.slug()).resolve(launchVersionId);
+        Path nativesDir  = mcDir.resolve("natives").resolve(launchVersionFolder);
 
-        Files.createDirectories(versionsDir.resolve(launchVersionId));
-        Files.createDirectories(versionsDir.resolve(clientVersionId));
+        Files.createDirectories(versionsDir.resolve(launchVersionFolder));
+        Files.createDirectories(versionsDir.resolve(clientVersionFolder));
         Files.createDirectories(libsDir);
         Files.createDirectories(assetsDir.resolve("indexes"));
         Files.createDirectories(assetsDir.resolve("objects"));
@@ -68,7 +72,7 @@ public final class AssetInstaller {
         recreateDirectory(nativesDir);
 
         JSONObject clientDownload = JsonUtil.requireObject(clientMeta, "downloads.client");
-        Path clientJar = versionsDir.resolve(clientVersionId).resolve(clientVersionId + ".jar");
+        Path clientJar = versionsDir.resolve(clientVersionFolder).resolve(clientVersionFolder + ".jar");
         http.download(clientDownload.getString("url"), clientJar, clientDownload.optString("sha1", ""));
 
         String assetIndexId = meta.optString("assets", "legacy");
@@ -161,7 +165,12 @@ public final class AssetInstaller {
             JSONObject lib = libraries.getJSONObject(i);
             if (!isAllowedByRules(lib.optJSONArray("rules"))) continue;
             JSONObject downloads = lib.optJSONObject("downloads");
-            if (downloads == null) continue;
+            if (downloads == null) {
+                if (downloadMavenLibrary(lib, libsDir, cp)) {
+                    continue;
+                }
+                continue;
+            }
             JSONObject artifact = downloads.optJSONObject("artifact");
             if (artifact != null) {
                 Path p = libsDir.resolve(artifact.getString("path"));
@@ -179,6 +188,45 @@ public final class AssetInstaller {
                 }
             }
         }
+    }
+
+    private boolean downloadMavenLibrary(JSONObject lib, Path libsDir, LinkedHashSet<String> cp) throws Exception {
+        String gav = lib.optString("name", "").trim();
+        if (gav.isBlank()) return false;
+
+        String[] parts = gav.split(":");
+        if (parts.length < 3) return false;
+
+        String group = parts[0];
+        String artifact = parts[1];
+        String version = parts[2];
+        String classifier = parts.length >= 4 ? parts[3] : "";
+
+        String extension = "jar";
+        int at = classifier.indexOf('@');
+        if (at >= 0) {
+            extension = classifier.substring(at + 1);
+            classifier = classifier.substring(0, at);
+        }
+
+        String baseRepo = lib.optString("url", "https://libraries.minecraft.net/").trim();
+        if (!baseRepo.endsWith("/")) {
+            baseRepo = baseRepo + "/";
+        }
+
+        String rel = group.replace('.', '/') + "/" + artifact + "/" + version + "/";
+        String fileName = artifact + "-" + version + (classifier.isBlank() ? "" : "-" + classifier) + "." + extension;
+        Path target = libsDir.resolve(rel).resolve(fileName);
+        http.download(baseRepo + rel + fileName, target, "");
+        cp.add(target.toString());
+        return true;
+    }
+
+    private String safeVersionFolderName(String versionId) {
+        if (versionId == null || versionId.isBlank()) {
+            return "unknown-version";
+        }
+        return versionId.replace(':', '_').replace('/', '_').replace('\\', '_');
     }
 
     private void extractNative(Path archive, Path targetDir, JSONObject extractConfig) throws Exception {

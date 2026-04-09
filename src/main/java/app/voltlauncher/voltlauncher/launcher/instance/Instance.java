@@ -1,10 +1,10 @@
-package app.voltlauncher.voltlauncher.launcher;
+package app.voltlauncher.voltlauncher.launcher.instance;
 
 import app.voltlauncher.voltlauncher.AppPaths;
 
 import java.nio.file.Path;
 
-public record LauncherInstance(
+public record Instance(
         String name,
         String slug,
         String versionId,
