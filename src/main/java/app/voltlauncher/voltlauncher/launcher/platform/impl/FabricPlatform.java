@@ -6,7 +6,8 @@ import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
 
 public final class FabricPlatform extends AbstractPlatform {
 
-	public FabricPlatform(IVersionResolver versionResolver) {
-		super(PlatformRegistry.FABRIC_ID, "Fabric", versionResolver);
-	}
+    public FabricPlatform(IVersionResolver versionResolver) {
+        super(PlatformRegistry.FABRIC_ID, "Fabric", versionResolver);
+    }
 }
+

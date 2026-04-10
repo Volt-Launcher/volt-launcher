@@ -2,17 +2,17 @@ package app.voltlauncher.voltlauncher.util.async;
 
 import java.util.concurrent.*;
 
-public final class SingleFlight<T> {
+public final class SingleFlight < T> {
 
-    private final ConcurrentHashMap<String, Future<T>> inflight = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap < String, Future < T>> inflight = new ConcurrentHashMap <> ();
 
-    public T call(String key, Callable<T> loader) throws Exception {
-        Future<T> existing = inflight.get(key);
+    public T call(String key, Callable < T> loader) throws Exception {
+        Future < T> existing = inflight.get(key);
         if (existing != null) {
             return unwrap(existing);
         }
-        FutureTask<T> task = new FutureTask<>(loader);
-        Future<T> previous = inflight.putIfAbsent(key, task);
+        FutureTask < T> task = new FutureTask <> (loader);
+        Future < T> previous = inflight.putIfAbsent(key, task);
         if (previous != null) {
             return unwrap(previous);
         }
@@ -24,7 +24,7 @@ public final class SingleFlight<T> {
         }
     }
 
-    private T unwrap(Future<T> future) throws Exception {
+    private T unwrap(Future < T> future) throws Exception {
         try {
             return future.get();
         } catch (InterruptedException e) {
@@ -40,3 +40,4 @@ public final class SingleFlight<T> {
     }
 
 }
+

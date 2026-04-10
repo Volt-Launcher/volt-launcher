@@ -9,11 +9,11 @@ public final class VersionOrdering {
 
     private VersionOrdering() {}
 
-    public static void sortNewestFirst(List<AvailableVersion> versions) {
+    public static void sortNewestFirst(List < AvailableVersion> versions) {
         versions.sort(newestFirst());
     }
 
-    public static Comparator<AvailableVersion> newestFirst() {
+    public static Comparator < AvailableVersion> newestFirst() {
         return (a, b) -> {
             int byTime = compareReleaseTimeDesc(a.releaseTime(), b.releaseTime());
             if (byTime != 0) return byTime;
@@ -78,8 +78,8 @@ public final class VersionOrdering {
     private static String[] tokenize(String input) {
         if (input == null || input.isBlank()) return new String[0];
         return input.toLowerCase(Locale.ROOT)
-                .replace(':', '.')
-                .split("[^a-z0-9]+") ;
+        .replace(':', '.')
+        .split("[^a-z0-9]+") ;
     }
 
     private static boolean isDigits(String token) {
@@ -101,7 +101,7 @@ public final class VersionOrdering {
 
     private static String stripLeadingZeros(String token) {
         int i = 0;
-        while (i < token.length() - 1 && token.charAt(i) == '0') i++;
+        while (i < token.length() - 1 && token.charAt(i) == '0') { i++; }
         return token.substring(i);
     }
 }

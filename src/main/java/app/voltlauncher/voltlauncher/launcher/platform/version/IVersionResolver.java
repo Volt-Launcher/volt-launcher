@@ -6,13 +6,14 @@ import java.util.List;
 
 public interface IVersionResolver {
 
-	List<AvailableVersion> listAvailableVersions() throws Exception;
+    List < AvailableVersion> listAvailableVersions() throws Exception;
 
-	default List<AvailableVersion> listLoaderVersions(String minecraftVersionId) throws Exception {
-		return listAvailableVersions().stream()
-				.filter(v -> v.id().equals(minecraftVersionId))
-				.toList();
-	}
+    default List < AvailableVersion> listLoaderVersions(String minecraftVersionId) throws Exception {
+        return listAvailableVersions().stream()
+        .filter(v -> v.id().equals(minecraftVersionId))
+        .toList();
+    }
 
-	JSONObject resolveMetadata(String versionId) throws Exception;
+    JSONObject resolveMetadata(String versionId) throws Exception;
 }
+

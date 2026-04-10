@@ -1,6 +1,5 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
-
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.rest.MethodType;
 import app.voltlauncher.voltlauncher.rest.RestServer;
@@ -11,7 +10,7 @@ import org.json.JSONObject;
 
 @Route(path = "/api/instances/{name}/stop", method = MethodType.POST)
 public class PostInstanceStop implements IRoute {
-    private MinecraftLauncherService minecraftLauncher;
+    private final MinecraftLauncherService minecraftLauncher;
 
     public PostInstanceStop(MinecraftLauncherService minecraftLauncher) {
         this.minecraftLauncher = minecraftLauncher;
@@ -41,3 +40,4 @@ public class PostInstanceStop implements IRoute {
         }
     }
 }
+

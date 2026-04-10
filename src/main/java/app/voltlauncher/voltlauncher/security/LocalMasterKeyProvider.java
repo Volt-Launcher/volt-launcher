@@ -33,9 +33,7 @@ public class LocalMasterKeyProvider {
 
     private void applyOwnerOnlyPermissions(Path path) {
         try {
-            Set<PosixFilePermission> permissions = EnumSet.of(
-                    PosixFilePermission.OWNER_READ,
-                    PosixFilePermission.OWNER_WRITE);
+            Set < PosixFilePermission> permissions = EnumSet.of( PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
             Files.setPosixFilePermissions(path, permissions);
         } catch (UnsupportedOperationException | IOException ignored) {
         }

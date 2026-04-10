@@ -17,47 +17,34 @@ public class LauncherInstanceStore {
 
     private final Path storagePath = AppPaths.instancesMetadataPath();
 
-    public synchronized List<Instance> listInstances() throws Exception {
+    public synchronized List < Instance> listInstances() throws Exception {
         if (!Files.exists(storagePath)) {
-            return new ArrayList<>();
+            return new ArrayList <> ();
         }
 
         JSONObject root = new JSONObject(Files.readString(storagePath, StandardCharsets.UTF_8));
         JSONArray instances = root.optJSONArray("instances");
         if (instances == null) {
-            return new ArrayList<>();
+            return new ArrayList <> ();
         }
 
-        List<Instance> result = new ArrayList<>();
+        List < Instance> result = new ArrayList <> ();
         for (int i = 0; i < instances.length(); i++) {
             JSONObject instance = instances.getJSONObject(i);
-            result.add(new Instance(
-                    instance.getString("name"),
-                    instance.getString("slug"),
-                    instance.getString("versionId"),
-                    instance.optString("versionType", "release"),
-                    instance.getLong("createdAt"),
-                    instance.optLong("lastPlayedAt", 0L),
-                    instance.optInt("javaMajorVersion", 0),
-                    instance.optString("javaComponent", "")));
+            result.add(new Instance( instance.getString("name"), instance.getString("slug"), instance.getString("versionId"), instance.optString("versionType", "release"), instance.getLong("createdAt"), instance.optLong("lastPlayedAt", 0L), instance.optInt("javaMajorVersion", 0), instance.optString("javaComponent", "")));
         }
 
-        result.sort(Comparator
-                .comparingLong((Instance instance) -> instance.lastPlayedAt() > 0
-                        ? instance.lastPlayedAt()
-                        : instance.createdAt())
-                .reversed()
-                .thenComparing(Instance::name, String.CASE_INSENSITIVE_ORDER));
+        result.sort(Comparator .comparingLong((Instance instance) -> instance.lastPlayedAt() > 0 ? instance.lastPlayedAt() : instance.createdAt()) .reversed() .thenComparing(Instance::name, String.CASE_INSENSITIVE_ORDER));
         return result;
     }
 
-    public synchronized Optional<Instance> findByName(String name) throws Exception {
+    public synchronized Optional < Instance> findByName(String name) throws Exception {
         return listInstances().stream()
-                .filter(instance -> instance.name().equalsIgnoreCase(name))
-                .findFirst();
+        .filter(instance -> instance.name().equalsIgnoreCase(name))
+        .findFirst();
     }
 
-    public synchronized void saveInstances(List<Instance> instances) throws Exception {
+    public synchronized void saveInstances(List < Instance> instances) throws Exception {
         Files.createDirectories(storagePath.getParent());
 
         JSONArray array = new JSONArray();

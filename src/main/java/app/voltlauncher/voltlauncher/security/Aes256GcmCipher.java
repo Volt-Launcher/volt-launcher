@@ -14,9 +14,6 @@ public class Aes256GcmCipher {
     private final SecretKey secretKey;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public record EncryptedPayload(String ivBase64, String cipherTextBase64) {
-    }
-
     public Aes256GcmCipher(SecretKey secretKey) {
         this.secretKey = secretKey;
     }
@@ -29,18 +26,16 @@ public class Aes256GcmCipher {
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
         byte[] cipherText = cipher.doFinal(plainBytes);
 
-        return new EncryptedPayload(
-                Base64.getEncoder().encodeToString(iv),
-                Base64.getEncoder().encodeToString(cipherText));
+        return new EncryptedPayload( Base64.getEncoder().encodeToString(iv), Base64.getEncoder().encodeToString(cipherText));
     }
 
     public byte[] decrypt(EncryptedPayload encryptedPayload) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(
-                Cipher.DECRYPT_MODE,
-                secretKey,
-                new GCMParameterSpec(GCM_TAG_LENGTH_BITS, Base64.getDecoder().decode(encryptedPayload.ivBase64())));
+        cipher.init( Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH_BITS, Base64.getDecoder().decode(encryptedPayload.ivBase64())));
         return cipher.doFinal(Base64.getDecoder().decode(encryptedPayload.cipherTextBase64()));
+    }
+
+    public record EncryptedPayload(String ivBase64, String cipherTextBase64) {
     }
 }
 

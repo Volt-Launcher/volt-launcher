@@ -7,11 +7,7 @@ import org.json.JSONObject;
 
 import java.nio.file.Files;
 import java.text.Normalizer;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.*;
 
 public final class InstanceManager {
 
@@ -27,7 +23,7 @@ public final class InstanceManager {
         this.versionResolver = versionResolver;
     }
 
-    public List<Instance> listInstances() throws Exception {
+    public List < Instance> listInstances() throws Exception {
         return upgradeJavaRequirements(store.listInstances());
     }
 
@@ -46,15 +42,13 @@ public final class InstanceManager {
 
         return lock.withLock(STORE_KEY, () -> {
             try {
-                List<Instance> instances = listInstances();
+                List < Instance> instances = listInstances();
                 if (instances.stream().anyMatch(i -> i.name().equalsIgnoreCase(normalized))) {
                     throw new IllegalStateException("An instance with this name already exists");
                 }
                 String slug = uniqueSlug(normalized, instances);
                 long now = System.currentTimeMillis();
-                Instance instance = new Instance(
-                        normalized, slug, versionId, versionType,
-                        now, 0L, req.majorVersion(), req.component());
+                Instance instance = new Instance( normalized, slug, versionId, versionType, now, 0L, req.majorVersion(), req.component());
                 Files.createDirectories(instance.gameDirectory());
                 instances.add(instance);
                 store.saveInstances(instances);
@@ -69,8 +63,8 @@ public final class InstanceManager {
         String normalized = normalizeName(name);
         lock.withLock(STORE_KEY, () -> {
             try {
-                List<Instance> instances = listInstances();
-                List<Instance> updated = new ArrayList<>(instances.size());
+                List < Instance> instances = listInstances();
+                List < Instance> updated = new ArrayList <> (instances.size());
                 for (Instance i : instances) {
                     if (!i.name().equalsIgnoreCase(normalized)) {
                         updated.add(i);
@@ -87,13 +81,11 @@ public final class InstanceManager {
     public void markPlayed(Instance launched, long startedAt) throws Exception {
         lock.withLock(STORE_KEY, () -> {
             try {
-                List<Instance> instances = listInstances();
-                List<Instance> updated = new ArrayList<>(instances.size());
+                List < Instance> instances = listInstances();
+                List < Instance> updated = new ArrayList <> (instances.size());
                 for (Instance i : instances) {
                     if (i.name().equalsIgnoreCase(launched.name())) {
-                        updated.add(new Instance(
-                                i.name(), i.slug(), i.versionId(), i.versionType(),
-                                i.createdAt(), startedAt, i.javaMajorVersion(), i.javaComponent()));
+                        updated.add(new Instance( i.name(), i.slug(), i.versionId(), i.versionType(), i.createdAt(), startedAt, i.javaMajorVersion(), i.javaComponent()));
                         continue;
                     }
                     updated.add(i);
@@ -108,12 +100,10 @@ public final class InstanceManager {
 
     public Instance findByName(String name) throws Exception {
         return listInstances().stream()
-                .filter(i -> i.name().equalsIgnoreCase(name))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Instance not found: " + name));
+        .filter(i -> i.name().equalsIgnoreCase(name))
+        .findFirst()
+        .orElseThrow(() -> new IllegalStateException("Instance not found: " + name));
     }
-
-    public record RequiredJava(int majorVersion, String component) {}
 
     public RequiredJava resolveRequiredJava(JSONObject meta, String versionId) {
         JSONObject jv = meta.optJSONObject("javaVersion");
@@ -126,9 +116,9 @@ public final class InstanceManager {
         return new RequiredJava(guessLegacyJava(versionId), "legacy-runtime");
     }
 
-    private List<Instance> upgradeJavaRequirements(List<Instance> instances) throws Exception {
+    private List < Instance> upgradeJavaRequirements(List < Instance> instances) throws Exception {
         boolean changed = false;
-        List<Instance> upgraded = new ArrayList<>(instances.size());
+        List < Instance> upgraded = new ArrayList <> (instances.size());
         for (Instance i : instances) {
             Instance up = ensureJavaReq(i);
             upgraded.add(up);
@@ -148,9 +138,7 @@ public final class InstanceManager {
         }
         JSONObject meta = versionResolver.resolveMetadata(i.versionId());
         RequiredJava req = resolveRequiredJava(meta, i.versionId());
-        return new Instance(
-                i.name(), i.slug(), i.versionId(), i.versionType(),
-                i.createdAt(), i.lastPlayedAt(), req.majorVersion(), req.component());
+        return new Instance( i.name(), i.slug(), i.versionId(), i.versionType(), i.createdAt(), i.lastPlayedAt(), req.majorVersion(), req.component());
     }
 
     private void validateName(String name) {
@@ -161,8 +149,7 @@ public final class InstanceManager {
             throw new IllegalArgumentException("Instance name must be 64 characters or shorter");
         }
         if (hasUnsupportedChar(name)) {
-            throw new IllegalArgumentException(
-                    "Instance name contains unsupported characters: / \\ : * ? \" < > | or control characters");
+            throw new IllegalArgumentException( "Instance name contains unsupported characters: / \\ : * ? \" < > | or control characters");
         }
     }
 
@@ -174,7 +161,7 @@ public final class InstanceManager {
             return 21;
         }
         if (id.startsWith("1.21") || id.startsWith("1.20") || id.startsWith("1.19")
-                || id.startsWith("1.18") || id.startsWith("24w")) {
+        || id.startsWith("1.18") || id.startsWith("24w")) {
             return 17;
         }
         if (id.startsWith("1.17") || id.startsWith("21w")) {
@@ -190,12 +177,12 @@ public final class InstanceManager {
         return name.trim().replaceAll("\\s+", " ");
     }
 
-    private String uniqueSlug(String name, List<Instance> existing) {
+    private String uniqueSlug(String name, List < Instance> existing) {
         String base = slugify(name);
         if (base.isBlank()) {
             base = "instance";
         }
-        Set<String> used = new HashSet<>();
+        Set < String> used = new HashSet <> ();
         for (Instance i : existing) {
             used.add(i.slug().toLowerCase(Locale.ROOT));
         }
@@ -210,21 +197,22 @@ public final class InstanceManager {
 
     private String slugify(String value) {
         return Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("^-+|-+$", "");
+        .replaceAll("\\p{M}+", "")
+        .toLowerCase(Locale.ROOT)
+        .replaceAll("[^a-z0-9]+", "-")
+        .replaceAll("^-+|-+$", "");
     }
 
     private boolean hasUnsupportedChar(String value) {
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
-            if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?'
-                    || c == '"' || c == '<' || c == '>' || c == '|'
-                    || Character.isISOControl(c)) {
+            if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|'
+            || Character.isISOControl(c)) {
                 return true;
             }
         }
         return false;
     }
+
+    public record RequiredJava(int majorVersion, String component) {}
 }

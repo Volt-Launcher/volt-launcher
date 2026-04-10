@@ -20,10 +20,8 @@ import java.util.zip.ZipFile;
 
 public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformResolver {
 
-    private static final String NEOFORGE_METADATA_URL =
-            "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
-    private static final String NEOFORGE_INSTALLER_URL =
-            "https://maven.neoforged.net/releases/net/neoforged/neoforge/%s/neoforge-%s-installer.jar";
+    private static final String NEOFORGE_METADATA_URL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+    private static final String NEOFORGE_INSTALLER_URL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/%s/neoforge-%s-installer.jar";
     private static final Pattern VERSION_TAG = Pattern.compile("<version>([^<]+)</version>");
 
     private final HttpFetcher http = new HttpFetcher();
@@ -42,7 +40,9 @@ public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformRes
         Matcher matcher = VERSION_TAG.matcher(xml);
         while (matcher.find()) {
             String loader = matcher.group(1).trim();
-            if (loader.isBlank()) continue;
+            if (loader.isBlank()) {
+                continue;
+            }
             if (!(loader.equals(mappedPrefix) || loader.startsWith(mappedPrefix + ".") || loader.startsWith(mappedPrefix + "-"))) {
                 continue;
             }
@@ -72,10 +72,14 @@ public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformRes
         }
 
         String installerUrl = NEOFORGE_INSTALLER_URL.formatted(loaderVersion, loaderVersion);
-        JSONObject profile = loadVersionJsonFromInstaller(installerUrl, "neoforge-" + loaderVersion);
+        InstallerData installerData = loadFromInstaller(installerUrl, "neoforge-" + loaderVersion);
+
+        JSONObject profile = installerData.versionJson();
+        JSONObject installProfile = installerData.installProfile();
 
         JSONObject base = super.resolveMetadata("neoforge:" + minecraftVersion);
         mergeLibraries(base, profile);
+        mergeLibraries(base, installProfile);
         mergeArguments(base, profile);
 
         if (profile.has("mainClass")) {
@@ -91,7 +95,35 @@ public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformRes
         base.put("id", "neoforge:" + minecraftVersion + ":" + loaderVersion);
         base.put("jar", minecraftVersion);
         base.put("voltPlatform", PlatformRegistry.NEOFORGE_ID);
+
+        base.put("voltInstallProfile", installProfile);
+        base.put("voltInstallerPath", installerData.installerJar().toAbsolutePath().toString());
+
         return base;
+    }
+
+    private InstallerData loadFromInstaller(String installerUrl, String cacheName) throws Exception {
+        Path cacheDir = Paths.get(System.getProperty("java.io.tmpdir"), "volt-launcher", "loader-version-json");
+        Files.createDirectories(cacheDir);
+        Path installerJar = cacheDir.resolve(cacheName + "-installer.jar");
+        http.download(installerUrl, installerJar, "");
+
+        try (ZipFile zip = new ZipFile(installerJar.toFile())) {
+            var versionEntry = zip.getEntry("version.json");
+            var profileEntry = zip.getEntry("install_profile.json");
+
+            if (versionEntry == null) {
+                throw new IllegalStateException("NeoForge installer has no version.json: " + installerUrl);
+            }
+            if (profileEntry == null) {
+                throw new IllegalStateException("NeoForge installer has no install_profile.json: " + installerUrl);
+            }
+
+            JSONObject versionJson = new JSONObject(new String(zip.getInputStream(versionEntry).readAllBytes(), StandardCharsets.UTF_8));
+            JSONObject installProfile = new JSONObject(new String(zip.getInputStream(profileEntry).readAllBytes(), StandardCharsets.UTF_8));
+
+            return new InstallerData(versionJson, installProfile, installerJar);
+        }
     }
 
     private String extractMinecraftVersion(String versionId) {
@@ -117,22 +149,6 @@ public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformRes
         return new Selection(raw, "");
     }
 
-    private JSONObject loadVersionJsonFromInstaller(String installerUrl, String cacheName) throws Exception {
-        Path cacheDir = Paths.get(System.getProperty("java.io.tmpdir"), "volt-launcher", "loader-version-json");
-        Files.createDirectories(cacheDir);
-        Path installerJar = cacheDir.resolve(cacheName + "-installer.jar");
-        http.download(installerUrl, installerJar, "");
-
-        try (ZipFile zip = new ZipFile(installerJar.toFile())) {
-            var versionEntry = zip.getEntry("version.json");
-            if (versionEntry == null) {
-                throw new IllegalStateException("NeoForge installer has no version.json: " + installerUrl);
-            }
-            byte[] raw = zip.getInputStream(versionEntry).readAllBytes();
-            return new JSONObject(new String(raw, StandardCharsets.UTF_8));
-        }
-    }
-
     private String mapMinecraftToNeoForgePrefix(String minecraftVersion) {
         if (minecraftVersion.startsWith("1.")) {
             return minecraftVersion.substring(2);
@@ -140,13 +156,16 @@ public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformRes
         return minecraftVersion;
     }
 
-    private void mergeLibraries(JSONObject base, JSONObject profile) {
-        JSONArray merged = new JSONArray();
-        appendArray(merged, base.optJSONArray("libraries"));
-        appendArray(merged, profile.optJSONArray("libraries"));
-        if (!merged.isEmpty()) {
-            base.put("libraries", merged);
+    private void mergeLibraries(JSONObject base, JSONObject source) {
+        JSONArray existing = base.optJSONArray("libraries");
+        JSONArray incoming = source.optJSONArray("libraries");
+        if (incoming == null || incoming.isEmpty()) {
+            return;
         }
+
+        JSONArray merged = existing != null ? existing : new JSONArray();
+        appendArray(merged, incoming);
+        base.put("libraries", merged);
     }
 
     private void mergeArguments(JSONObject base, JSONObject profile) {
@@ -170,20 +189,24 @@ public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformRes
     }
 
     private void appendArray(JSONArray target, JSONArray source) {
-        if (source == null) return;
+        if (source == null) {
+            return;
+        }
         for (int i = 0; i < source.length(); i++) {
             Object value = source.get(i);
             if (value instanceof JSONObject jo) {
                 target.put(new JSONObject(jo.toString()));
-            } else if (value instanceof JSONArray ja) {
-                target.put(new JSONArray(ja.toString()));
-            } else {
-                target.put(value);
+                continue;
             }
+            if (value instanceof JSONArray ja) {
+                target.put(new JSONArray(ja.toString()));
+                continue;
+            }
+            target.put(value);
         }
     }
 
     private record Selection(String minecraftVersion, String loaderVersion) {}
+
+    private record InstallerData(JSONObject versionJson, JSONObject installProfile, Path installerJar) {}
 }
-
-

@@ -31,9 +31,9 @@ public final class QuiltVersionResolver extends AbstractDelegatingPlatformResolv
         for (int i = 0; i < loaders.length(); i++) {
             JSONObject entry = loaders.getJSONObject(i);
             JSONObject loader = entry.optJSONObject("loader");
-            if (loader == null) continue;
+            if (loader == null) { continue; }
             String loaderVersion = loader.optString("version", "").trim();
-            if (loaderVersion.isBlank()) continue;
+            if (loaderVersion.isBlank()) { continue; }
             boolean stable = loader.optBoolean("stable", true);
             String type = stable ? "release" : "snapshot";
             versions.add(new AvailableVersion("quilt:" + base + ":" + loaderVersion, type, ""));
@@ -55,9 +55,7 @@ public final class QuiltVersionResolver extends AbstractDelegatingPlatformResolv
         }
 
         JSONObject base = super.resolveMetadata("quilt:" + selection.minecraftVersion());
-        String url = String.format(QUILT_PROFILE_URL,
-                URLEncoder.encode(selection.minecraftVersion(), StandardCharsets.UTF_8),
-                URLEncoder.encode(loaderVersion, StandardCharsets.UTF_8));
+        String url = String.format(QUILT_PROFILE_URL, URLEncoder.encode(selection.minecraftVersion(), StandardCharsets.UTF_8), URLEncoder.encode(loaderVersion, StandardCharsets.UTF_8));
         JSONObject profile = http.getJson(url);
 
         mergeLibraries(base, profile);
@@ -139,5 +137,4 @@ public final class QuiltVersionResolver extends AbstractDelegatingPlatformResolv
 
     private record Selection(String minecraftVersion, String loaderVersion) {}
 }
-
 

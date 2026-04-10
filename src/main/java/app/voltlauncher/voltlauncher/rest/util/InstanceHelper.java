@@ -1,7 +1,7 @@
 package app.voltlauncher.voltlauncher.rest.util;
 
-import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.launcher.instance.RunningInstanceStatus;
 import org.json.JSONObject;
 
@@ -28,3 +28,4 @@ public class InstanceHelper {
         return json;
     }
 }
+

@@ -6,7 +6,8 @@ import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
 
 public final class QuiltPlatform extends AbstractPlatform {
 
-	public QuiltPlatform(IVersionResolver versionResolver) {
-		super(PlatformRegistry.QUILT_ID, "Quilt", versionResolver);
-	}
+    public QuiltPlatform(IVersionResolver versionResolver) {
+        super(PlatformRegistry.QUILT_ID, "Quilt", versionResolver);
+    }
 }
+

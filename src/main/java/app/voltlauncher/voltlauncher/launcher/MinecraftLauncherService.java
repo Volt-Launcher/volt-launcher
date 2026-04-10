@@ -2,8 +2,8 @@ package app.voltlauncher.voltlauncher.launcher;
 
 import app.voltlauncher.voltlauncher.AppPaths;
 import app.voltlauncher.voltlauncher.auth.MinecraftAccountSession;
-import app.voltlauncher.voltlauncher.launcher.instance.InstanceManager;
 import app.voltlauncher.voltlauncher.launcher.instance.Instance;
+import app.voltlauncher.voltlauncher.launcher.instance.InstanceManager;
 import app.voltlauncher.voltlauncher.launcher.instance.LaunchResult;
 import app.voltlauncher.voltlauncher.launcher.instance.RunningInstanceStatus;
 import app.voltlauncher.voltlauncher.launcher.java.JavaRuntimeResolver;
@@ -20,19 +20,14 @@ import org.json.JSONObject;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public final class MinecraftLauncherService {
-
-    public enum LaunchPhase { IDLE, INSTALLING, LAUNCHING, RUNNING, FAILED }
-
-    public record LaunchState(LaunchPhase phase, String message, LaunchResult result) {}
-
-    private record RunningInstance(
-            Instance instance, ProcessHandle handle,
-            long startedAt, JavaRuntimeResolver.JavaRuntime runtime) {}
 
     private final InstanceManager instanceManager;
     private final VanillaVersionResolver versionResolver;
@@ -43,25 +38,24 @@ public final class MinecraftLauncherService {
     private final JavaRuntimeResolver javaResolver;
     private final ProcessRegistry processRegistry;
     private final NamedLock launchLock = new NamedLock();
-    private final ConcurrentHashMap<String, RunningInstance> runningMeta = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, LaunchState> launchStates = new ConcurrentHashMap<>();
-
+    private final ConcurrentHashMap < String, RunningInstance> runningMeta = new ConcurrentHashMap <> ();
+    private final ConcurrentHashMap < String, LaunchState> launchStates = new ConcurrentHashMap <> ();
     public MinecraftLauncherService(String launcherClientId) {
         HttpFetcher http = new HttpFetcher();
         this.versionResolver = new VanillaVersionResolver(http);
         this.platformRegistry = PlatformRegistry.withDefaults(versionResolver);
         this.defaultPlatform = platformRegistry.requireDefault();
-        this.assetInstaller  = new AssetInstaller(http, versionResolver);
+        this.assetInstaller = new AssetInstaller(http, versionResolver);
         this.instanceManager = new InstanceManager(new LauncherInstanceStore(), versionResolver);
-        this.commandBuilder  = new LaunchCommandBuilder(launcherClientId);
-        this.javaResolver    = new JavaRuntimeResolver();
+        this.commandBuilder = new LaunchCommandBuilder(launcherClientId);
+        this.javaResolver = new JavaRuntimeResolver();
         this.processRegistry = new ProcessRegistry((key, _) -> {
             runningMeta.remove(key);
             launchStates.remove(key);
         });
     }
 
-    public List<Instance> listInstances() throws Exception {
+    public List < Instance> listInstances() throws Exception {
         return instanceManager.listInstances();
     }
 
@@ -70,9 +64,7 @@ public final class MinecraftLauncherService {
         String baseMinecraftVersionId = extractBaseMinecraftVersionId(versionId);
         JSONObject baseMeta = versionResolver.resolveMetadata(baseMinecraftVersionId);
         JSONObject meta = platform.versionResolver().resolveMetadata(versionId);
-        String versionType = platform.id().equals(PlatformRegistry.VANILLA_ID)
-                ? meta.optString("type", "release")
-                : platform.id();
+        String versionType = platform.id().equals(PlatformRegistry.VANILLA_ID) ? meta.optString("type", "release") : platform.id();
 
         Instance instance = instanceManager.createInstance(name, versionId, versionType, meta);
         try {
@@ -92,26 +84,25 @@ public final class MinecraftLauncherService {
         }
     }
 
-    public List<AvailableVersion> listVersions(
-            boolean includeSnapshots, boolean includeBetas, boolean includeAlphas) throws Exception {
-        List<AvailableVersion> result = defaultPlatform.listVersions(includeSnapshots, includeBetas, includeAlphas);
+    public List < AvailableVersion> listVersions(
+    boolean includeSnapshots, boolean includeBetas, boolean includeAlphas) throws Exception {
+        List < AvailableVersion> result = defaultPlatform.listVersions(includeSnapshots, includeBetas, includeAlphas);
         VersionOrdering.sortNewestFirst(result);
         return result;
     }
 
-    public List<AvailableVersion> listLoaderVersions(String platformId, String minecraftVersionId) throws Exception {
+    public List < AvailableVersion> listLoaderVersions(String platformId, String minecraftVersionId) throws Exception {
         IPlatform platform = platformRegistry.require(platformId);
-        List<AvailableVersion> result = new ArrayList<>(
-                platform.versionResolver().listLoaderVersions(minecraftVersionId));
+        List < AvailableVersion> result = new ArrayList <> ( platform.versionResolver().listLoaderVersions(minecraftVersionId));
         VersionOrdering.sortNewestFirst(result);
         return result;
     }
 
     /**
-     * Startet den Launch-Prozess asynchron.
-     * Gibt sofort zurück — der tatsächliche Launch (inkl. Asset-Download) läuft im Hintergrund.
-     * Status kann über getLaunchState() abgefragt werden.
-     */
+    * Startet den Launch-Prozess asynchron.
+    * Gibt sofort zurück — der tatsächliche Launch (inkl. Asset-Download) läuft im Hintergrund.
+    * Status kann über getLaunchState() abgefragt werden.
+    */
     public void launchInstanceAsync(MinecraftAccountSession session, String instanceName) {
         String key = instanceKey(instanceName);
 
@@ -144,10 +135,10 @@ public final class MinecraftLauncherService {
                         launchStates.put(key, new LaunchState(LaunchPhase.LAUNCHING, "Starting Minecraft...", null));
                         InstanceManager.RequiredJava req = instanceManager.resolveRequiredJava(meta, install.launchVersionId());
                         JavaRuntimeResolver.JavaRuntime runtime = javaResolver.resolveRuntime(req.majorVersion());
-                        List<String> cmd = commandBuilder.build(session, install, runtime);
+                        List < String> cmd = commandBuilder.build(session, install, runtime);
 
                         Path logFile = AppPaths.logsDirectory()
-                                .resolve(instance.slug() + "-" + install.launchVersionId() + ".log");
+                        .resolve(instance.slug() + "-" + install.launchVersionId() + ".log");
                         Files.createDirectories(logFile.getParent());
                         Files.createDirectories(instance.gameDirectory());
 
@@ -162,10 +153,7 @@ public final class MinecraftLauncherService {
                         runningMeta.put(key, new RunningInstance(instance, handle, startedAt, runtime));
                         instanceManager.markPlayed(instance, startedAt);
 
-                        LaunchResult result = new LaunchResult(
-                                instance.name(), install.launchVersionId(), handle.pid(),
-                                String.join(" ", cmd), logFile.toString(),
-                                runtime.majorVersion(), runtime.javaExecutable().toString());
+                        LaunchResult result = new LaunchResult( instance.name(), install.launchVersionId(), handle.pid(), String.join(" ", cmd), logFile.toString(), runtime.majorVersion(), runtime.javaExecutable().toString());
 
                         launchStates.put(key, new LaunchState(LaunchPhase.RUNNING, "Läuft", result));
                         return null;
@@ -175,16 +163,14 @@ public final class MinecraftLauncherService {
                     }
                 });
             } catch (Exception e) {
-                launchStates.put(key, new LaunchState(LaunchPhase.FAILED,
-                        e.getMessage() != null ? e.getMessage() : "Unbekannter Fehler", null));
+                launchStates.put(key, new LaunchState(LaunchPhase.FAILED, e.getMessage() != null ? e.getMessage() : "Unbekannter Fehler", null));
                 System.err.println("[Launcher] Launch fehlgeschlagen: " + e.getMessage());
             }
         });
     }
 
     public LaunchState getLaunchState(String instanceName) {
-        return launchStates.getOrDefault(instanceKey(instanceName),
-                new LaunchState(LaunchPhase.IDLE, null, null));
+        return launchStates.getOrDefault(instanceKey(instanceName), new LaunchState(LaunchPhase.IDLE, null, null));
     }
 
     public boolean stopInstance(String instanceName) throws Exception {
@@ -192,7 +178,7 @@ public final class MinecraftLauncherService {
         return launchLock.withLock(key, () -> {
             try {
                 ProcessHandle handle = processRegistry.get(key);
-                if (handle == null) throw new IllegalStateException("This instance is not running");
+                if (handle == null) { throw new IllegalStateException("This instance is not running"); }
                 handle.destroy();
                 await(handle, 5);
                 if (handle.isAlive()) {
@@ -212,7 +198,7 @@ public final class MinecraftLauncherService {
     public void stopAllRunningInstances() {
         for (String key : processRegistry.liveKeys()) {
             RunningInstance ri = runningMeta.get(key);
-            if (ri == null) continue;
+            if (ri == null) { continue; }
             try { stopInstance(ri.instance().name()); } catch (Exception ignored) {}
         }
     }
@@ -224,23 +210,19 @@ public final class MinecraftLauncherService {
         return toStatus(ri);
     }
 
-    public List<RunningInstanceStatus> listRunningInstances() {
-        List<RunningInstanceStatus> result = new ArrayList<>();
+    public List < RunningInstanceStatus> listRunningInstances() {
+        List < RunningInstanceStatus> result = new ArrayList <> ();
         for (String key : processRegistry.liveKeys()) {
             RunningInstance ri = runningMeta.get(key);
-            if (ri != null) result.add(toStatus(ri));
+            if (ri != null) { result.add(toStatus(ri)); }
         }
         result.sort(Comparator.comparing(RunningInstanceStatus::instanceName, String.CASE_INSENSITIVE_ORDER));
         return result;
     }
 
     private RunningInstanceStatus toStatus(RunningInstance ri) {
-        return new RunningInstanceStatus(
-                ri.instance().name(), ri.instance().versionId(),
-                ri.handle().pid(), ri.startedAt(), ri.handle().isAlive(),
-                ri.runtime().majorVersion(), ri.runtime().javaExecutable().toString());
+        return new RunningInstanceStatus( ri.instance().name(), ri.instance().versionId(), ri.handle().pid(), ri.startedAt(), ri.handle().isAlive(), ri.runtime().majorVersion(), ri.runtime().javaExecutable().toString());
     }
-
 
     private void await(ProcessHandle handle, long timeoutSeconds) {
         try { handle.onExit().get(timeoutSeconds, TimeUnit.SECONDS); } catch (Exception ignored) {}
@@ -275,4 +257,11 @@ public final class MinecraftLauncherService {
         int secondSep = rest.indexOf(':');
         return secondSep >= 0 ? rest.substring(0, secondSep).trim() : rest.trim();
     }
+
+    public enum LaunchPhase { IDLE, INSTALLING, LAUNCHING, RUNNING, FAILED }
+
+    public record LaunchState(LaunchPhase phase, String message, LaunchResult result) {}
+
+    private record RunningInstance( Instance instance, ProcessHandle handle,
+    long startedAt, JavaRuntimeResolver.JavaRuntime runtime) {}
 }

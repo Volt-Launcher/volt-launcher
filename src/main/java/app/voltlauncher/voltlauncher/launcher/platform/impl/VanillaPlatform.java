@@ -6,7 +6,8 @@ import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
 
 public final class VanillaPlatform extends AbstractPlatform {
 
-	public VanillaPlatform(IVersionResolver versionResolver) {
-		super(PlatformRegistry.VANILLA_ID, "Vanilla", versionResolver);
-	}
+    public VanillaPlatform(IVersionResolver versionResolver) {
+        super(PlatformRegistry.VANILLA_ID, "Vanilla", versionResolver);
+    }
 }
+

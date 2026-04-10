@@ -1,6 +1,5 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl.auth;
 
-
 import app.voltlauncher.voltlauncher.rest.RestServer;
 import app.voltlauncher.voltlauncher.rest.auth.MicrosoftAuth;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
@@ -10,8 +9,8 @@ import org.json.JSONObject;
 
 @Route(path = "/api/auth/login")
 public class GetLogin implements IRoute {
-    private MicrosoftAuth msAuth;
-    private RestServer.OpenUrlAction openUrlAction;
+    private final MicrosoftAuth msAuth;
+    private final RestServer.OpenUrlAction openUrlAction;
 
     public GetLogin(MicrosoftAuth msAuth, RestServer.OpenUrlAction openUrlAction) {
         this.msAuth = msAuth;
@@ -25,8 +24,8 @@ public class GetLogin implements IRoute {
             openUrlAction.open(start.url());
             JSONObject json = new JSONObject();
             json.put("success", true);
-            json.put("state",   start.state());
-            json.put("url",     start.url());
+            json.put("state", start.state());
+            json.put("url", start.url());
             ctx.contentType("application/json").result(json.toString());
         } catch (Exception e) {
             JSONObject json = new JSONObject();
@@ -36,3 +35,4 @@ public class GetLogin implements IRoute {
         }
     }
 }
+

@@ -6,13 +6,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class ProcessRegistry {
 
-    public interface ExitListener {
-        void onExit(String key, ProcessHandle handle);
-    }
-
-    private final ConcurrentHashMap<String, ProcessHandle> handles = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap < String, ProcessHandle> handles = new ConcurrentHashMap <> ();
     private final ExitListener listener;
-
     public ProcessRegistry(ExitListener listener) {
         this.listener = listener;
     }
@@ -51,12 +46,16 @@ public final class ProcessRegistry {
         return handles.remove(key);
     }
 
-    public List<String> liveKeys() {
+    public List < String> liveKeys() {
         purgeExited();
-        return new ArrayList<>(handles.keySet());
+        return new ArrayList <> (handles.keySet());
     }
 
     private void purgeExited() {
         handles.entrySet().removeIf(entry -> !entry.getValue().isAlive());
+    }
+
+    public interface ExitListener {
+        void onExit(String key, ProcessHandle handle);
     }
 }

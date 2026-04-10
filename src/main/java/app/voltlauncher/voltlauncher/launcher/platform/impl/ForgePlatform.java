@@ -6,7 +6,8 @@ import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
 
 public final class ForgePlatform extends AbstractPlatform {
 
-	public ForgePlatform(IVersionResolver versionResolver) {
-		super(PlatformRegistry.FORGE_ID, "Forge", versionResolver);
-	}
+    public ForgePlatform(IVersionResolver versionResolver) {
+        super(PlatformRegistry.FORGE_ID, "Forge", versionResolver);
+    }
 }
+

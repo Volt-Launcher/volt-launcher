@@ -1,8 +1,7 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
-
-import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.rest.MethodType;
 import app.voltlauncher.voltlauncher.rest.RestServer;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
@@ -13,7 +12,7 @@ import org.json.JSONObject;
 
 @Route(path = "/api/instances", method = MethodType.POST)
 public class PostInstances implements IRoute {
-    private MinecraftLauncherService minecraftLauncher;
+    private final MinecraftLauncherService minecraftLauncher;
 
     public PostInstances(MinecraftLauncherService minecraftLauncher) {
         this.minecraftLauncher = minecraftLauncher;
@@ -50,3 +49,4 @@ public class PostInstances implements IRoute {
         }
     }
 }
+

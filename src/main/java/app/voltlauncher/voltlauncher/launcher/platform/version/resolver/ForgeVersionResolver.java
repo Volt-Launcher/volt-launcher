@@ -21,9 +21,9 @@ import java.util.zip.ZipFile;
 public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolver {
 
     private static final String FORGE_METADATA_URL =
-            "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+    "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
     private static final String FORGE_INSTALLER_URL =
-            "https://maven.minecraftforge.net/net/minecraftforge/forge/%s/forge-%s-installer.jar";
+    "https://maven.minecraftforge.net/net/minecraftforge/forge/%s/forge-%s-installer.jar";
     private static final Pattern VERSION_TAG = Pattern.compile("<version>([^<]+)</version>");
 
     private final HttpFetcher http = new HttpFetcher();
@@ -42,9 +42,9 @@ public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolv
         String expectedPrefix = base + "-";
         while (matcher.find()) {
             String full = matcher.group(1).trim();
-            if (!full.startsWith(expectedPrefix)) continue;
+            if (!full.startsWith(expectedPrefix)) { continue; }
             String loader = full.substring(expectedPrefix.length()).trim();
-            if (loader.isBlank()) continue;
+            if (loader.isBlank()) { continue; }
             result.add(new AvailableVersion("forge:" + base + ":" + loader, "release", ""));
         }
 
@@ -178,5 +178,4 @@ public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolv
 
     private record Selection(String minecraftVersion, String loaderVersion) {}
 }
-
 

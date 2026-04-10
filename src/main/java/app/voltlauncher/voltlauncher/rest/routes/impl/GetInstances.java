@@ -1,8 +1,7 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
-
-import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
+import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
 import app.voltlauncher.voltlauncher.rest.routes.Route;
 import app.voltlauncher.voltlauncher.rest.util.InstanceHelper;
@@ -12,7 +11,7 @@ import org.json.JSONObject;
 
 @Route(path = "/api/instances")
 public class GetInstances implements IRoute {
-    private MinecraftLauncherService minecraftLauncher;
+    private final MinecraftLauncherService minecraftLauncher;
 
     public GetInstances(MinecraftLauncherService minecraftLauncher) {
         this.minecraftLauncher = minecraftLauncher;
@@ -38,3 +37,4 @@ public class GetInstances implements IRoute {
         }
     }
 }
+

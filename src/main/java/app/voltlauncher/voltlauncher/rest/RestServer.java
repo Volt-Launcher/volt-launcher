@@ -1,6 +1,6 @@
 package app.voltlauncher.voltlauncher.rest;
 
-import app.voltlauncher.voltlauncher.launcher.*;
+import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.launcher.instance.Instance;
 import app.voltlauncher.voltlauncher.launcher.instance.RunningInstanceStatus;
 import app.voltlauncher.voltlauncher.launcher.platform.version.AvailableVersion;
@@ -19,36 +19,20 @@ import org.json.JSONObject;
 
 public class RestServer {
 
-    @FunctionalInterface
-    public interface WindowAction {
-        void execute();
-    }
-
-    @FunctionalInterface
-    public interface OpenUrlAction {
-        void open(String url);
-    }
-
     private final int port;
-    private Javalin app;
-    private RouteManager routeManager;
     private final MicrosoftAuth msAuth;
     private final MinecraftLauncherService minecraftLauncher;
     private final WindowAction minimizeWindowAction;
     private final WindowAction maximizeWindowAction;
     private final WindowAction closeWindowAction;
     private final OpenUrlAction openUrlAction;
-
+    private Javalin app;
+    private final RouteManager routeManager;
     public RestServer(int port) {
         this(port, () -> {}, () -> {}, () -> {}, url -> {});
     }
-
-    public RestServer(
-            int port,
-            WindowAction minimizeWindowAction,
-            WindowAction maximizeWindowAction,
-            WindowAction closeWindowAction,
-            OpenUrlAction openUrlAction) {
+    public RestServer( int port, WindowAction minimizeWindowAction, WindowAction maximizeWindowAction, WindowAction closeWindowAction,
+    OpenUrlAction openUrlAction) {
         this.port = port;
         this.minimizeWindowAction = minimizeWindowAction;
         this.maximizeWindowAction = maximizeWindowAction;
@@ -80,6 +64,19 @@ public class RestServer {
         this.routeManager.register(new PostWindowClose(this.closeWindowAction));
     }
 
+    public static JSONObject toVersionJson(AvailableVersion version) {
+        JSONObject json = new JSONObject();
+        json.put("id", version.id());
+        json.put("type", version.type());
+        json.put("releaseTime", version.releaseTime());
+        return json;
+    }
+
+    public static void logError(String message, Exception e) {
+        System.err.println("[RestServer] " + message + ": " + e.getMessage());
+        e.printStackTrace(System.err);
+    }
+
     public void submitAuthCode(String code, String state) {
         Thread.ofVirtual().start(() -> {
             try {
@@ -104,10 +101,8 @@ public class RestServer {
             config.bundledPlugins.enableCors(cors -> cors.addRule(rule -> rule.anyHost()));
             config.routes.beforeMatched(ctx -> {
                 String path = ctx.path();
-                if (!path.startsWith("/api")
-                        && !path.contains(".")
-                        && !"/".equals(path)
-                        && !path.startsWith("/assets")) {
+                if (!path.startsWith("/api") && !path.contains(".") && !"/".equals(path)
+                && !path.startsWith("/assets")) {
                     ctx.redirect("/");
                 }
             });
@@ -118,43 +113,40 @@ public class RestServer {
 
     public void stop() {
         minecraftLauncher.stopAllRunningInstances();
-        if (app != null) app.stop();
+        if (app != null) { app.stop(); }
     }
 
     private JSONObject toInstanceJson(Instance instance) {
         JSONObject json = new JSONObject();
-        json.put("name",             instance.name());
-        json.put("slug",             instance.slug());
-        json.put("versionId",        instance.versionId());
-        json.put("versionType",      instance.versionType());
-        json.put("createdAt",        instance.createdAt());
-        json.put("lastPlayedAt",     instance.lastPlayedAt());
+        json.put("name", instance.name());
+        json.put("slug", instance.slug());
+        json.put("versionId", instance.versionId());
+        json.put("versionType", instance.versionType());
+        json.put("createdAt", instance.createdAt());
+        json.put("lastPlayedAt", instance.lastPlayedAt());
         json.put("javaMajorVersion", instance.javaMajorVersion());
-        json.put("javaComponent",    instance.javaComponent());
+        json.put("javaComponent", instance.javaComponent());
 
         RunningInstanceStatus running = minecraftLauncher.getRunningInstanceStatus(instance.name());
         MinecraftLauncherService.LaunchState state = minecraftLauncher.getLaunchState(instance.name());
         json.put("running", running != null && running.alive());
         json.put("launchPhase", state.phase().name().toLowerCase());
         if (running != null) {
-            json.put("pid",                     running.pid());
-            json.put("startedAt",               running.startedAt());
-            json.put("javaExecutable",          running.javaExecutable());
+            json.put("pid", running.pid());
+            json.put("startedAt", running.startedAt());
+            json.put("javaExecutable", running.javaExecutable());
             json.put("runningJavaMajorVersion", running.javaMajorVersion());
         }
         return json;
     }
 
-    public static JSONObject toVersionJson(AvailableVersion version) {
-        JSONObject json = new JSONObject();
-        json.put("id",          version.id());
-        json.put("type",        version.type());
-        json.put("releaseTime", version.releaseTime());
-        return json;
+    @FunctionalInterface
+    public interface WindowAction {
+        void execute();
     }
 
-    public static void logError(String message, Exception e) {
-        System.err.println("[RestServer] " + message + ": " + e.getMessage());
-        e.printStackTrace(System.err);
+    @FunctionalInterface
+    public interface OpenUrlAction {
+        void open(String url);
     }
 }

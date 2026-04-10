@@ -1,7 +1,7 @@
 package app.voltlauncher.voltlauncher.launcher.platform.version.resolver;
 
-import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
 import app.voltlauncher.voltlauncher.launcher.platform.version.AvailableVersion;
+import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
 import app.voltlauncher.voltlauncher.util.HttpFetcher;
 import app.voltlauncher.voltlauncher.util.JsonUtil;
 import app.voltlauncher.voltlauncher.util.async.SingleFlight;
@@ -15,13 +15,11 @@ public final class VanillaVersionResolver implements IVersionResolver {
     private static final String MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     private final HttpFetcher http;
-    private final SingleFlight<JSONObject> flight = new SingleFlight<>();
+    private final SingleFlight < JSONObject> flight = new SingleFlight <> ();
 
     public VanillaVersionResolver(HttpFetcher http) {
         this.http = http;
     }
-
-    public record ManifestEntry(String id, String type, String url, String releaseTime) {}
 
     @Override
     public List<AvailableVersion> listAvailableVersions() throws Exception {
@@ -37,21 +35,16 @@ public final class VanillaVersionResolver implements IVersionResolver {
         List<ManifestEntry> result = new ArrayList<>(versions.length());
         for (int i = 0; i < versions.length(); i++) {
             JSONObject version = versions.getJSONObject(i);
-            result.add(new ManifestEntry(
-                    version.getString("id"),
-                    version.getString("type"),
-                    version.getString("url"),
-                    version.optString("releaseTime", version.optString("time", ""))
-            ));
+            result.add(new ManifestEntry( version.getString("id"), version.getString("type"), version.getString("url"), version.optString("releaseTime", version.optString("time", "")) ));
         }
         return result;
     }
 
     public ManifestEntry findEntry(String versionId) throws Exception {
         return loadEntries().stream()
-                .filter(e -> e.id().equals(versionId))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Minecraft version not found: " + versionId));
+        .filter(e -> e.id().equals(versionId))
+        .findFirst()
+        .orElseThrow(() -> new IllegalStateException("Minecraft version not found: " + versionId));
     }
 
     @Override
@@ -92,9 +85,8 @@ public final class VanillaVersionResolver implements IVersionResolver {
         }
 
         for (String key : child.keySet()) {
-            if (Objects.equals(key, "inheritsFrom")
-                    || Objects.equals(key, "libraries")
-                    || Objects.equals(key, "arguments")) {
+            if (Objects.equals(key, "inheritsFrom") || Objects.equals(key, "libraries")
+            || Objects.equals(key, "arguments")) {
                 continue;
             }
             Object cv = child.get(key);
@@ -142,4 +134,6 @@ public final class VanillaVersionResolver implements IVersionResolver {
         if (v instanceof JSONArray ja) return new JSONArray(ja.toString());
         return v;
     }
+
+    public record ManifestEntry(String id, String type, String url, String releaseTime) {}
 }

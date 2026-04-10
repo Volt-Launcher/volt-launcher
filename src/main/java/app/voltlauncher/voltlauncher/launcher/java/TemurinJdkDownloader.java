@@ -3,6 +3,8 @@ package app.voltlauncher.voltlauncher.launcher.java;
 import app.voltlauncher.voltlauncher.AppPaths;
 import app.voltlauncher.voltlauncher.util.HttpFetcher;
 import app.voltlauncher.voltlauncher.util.JsonUtil;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -18,16 +20,10 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-
 public final class TemurinJdkDownloader {
 
     private static final String ADOPTIUM_API =
-            "https://api.adoptium.net/v3/assets/latest/%d/hotspot?architecture=%s&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=%s&vendor=eclipse";
-
-    private record ReleaseAsset(String downloadUrl, String fileName, String sha256) {}
-
+    "https://api.adoptium.net/v3/assets/latest/%d/hotspot?architecture=%s&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=%s&vendor=eclipse";
     private final HttpFetcher http = new HttpFetcher();
 
     public Path ensureDownloadedRuntime(int majorVersion) throws Exception {
@@ -36,7 +32,7 @@ public final class TemurinJdkDownloader {
         String execName = isWindows() ? "java.exe" : "java";
 
         Path runtimeDir = AppPaths.temurinRuntimesDirectory()
-                .resolve("jdk-" + majorVersion + "-" + os + "-" + arch);
+        .resolve("jdk-" + majorVersion + "-" + os + "-" + arch);
         Path javaExec = runtimeDir.resolve("bin").resolve(execName);
 
         if (Files.exists(javaExec)) {
@@ -52,7 +48,7 @@ public final class TemurinJdkDownloader {
         http.download(asset.downloadUrl(), archivePath, asset.sha256());
 
         Path tempDir = AppPaths.temurinRuntimesDirectory()
-                .resolve(runtimeDir.getFileName().toString() + ".tmp");
+        .resolve(runtimeDir.getFileName().toString() + ".tmp");
         recreateDirectory(tempDir);
         try {
             extractArchive(archivePath, tempDir);
@@ -76,14 +72,10 @@ public final class TemurinJdkDownloader {
         String url = String.format(ADOPTIUM_API, majorVersion, arch, os);
         JSONArray releases = http.getJsonArray(url);
         if (releases.isEmpty()) {
-            throw new IllegalStateException(
-                    "No Temurin JDK found for Java " + majorVersion + " on " + os + "/" + arch);
+            throw new IllegalStateException( "No Temurin JDK found for Java " + majorVersion + " on " + os + "/" + arch);
         }
         JSONObject pkg = resolvePackage(releases.getJSONObject(0));
-        return new ReleaseAsset(
-                JsonUtil.requireString(pkg, "link"),
-                JsonUtil.requireString(pkg, "name"),
-                pkg.optString("checksum", ""));
+        return new ReleaseAsset( JsonUtil.requireString(pkg, "link"), JsonUtil.requireString(pkg, "name"), pkg.optString("checksum", ""));
     }
 
     private JSONObject resolvePackage(JSONObject release) {
@@ -107,9 +99,8 @@ public final class TemurinJdkDownloader {
     }
 
     private void extractTarGz(Path archive, Path targetDir) throws Exception {
-        try (InputStream fi = Files.newInputStream(archive);
-             GZIPInputStream gi = new GZIPInputStream(fi);
-             TarArchiveInputStream tar = new TarArchiveInputStream(gi)) {
+        try (InputStream fi = Files.newInputStream(archive); GZIPInputStream gi = new GZIPInputStream(fi);
+        TarArchiveInputStream tar = new TarArchiveInputStream(gi)) {
             TarArchiveEntry entry;
             while ((entry = tar.getNextEntry()) != null) {
                 if (!tar.canReadEntryData(entry)) {
@@ -131,7 +122,7 @@ public final class TemurinJdkDownloader {
 
     private void extractZip(Path archive, Path targetDir) throws Exception {
         try (InputStream fi = Files.newInputStream(archive);
-             ZipInputStream zip = new ZipInputStream(fi)) {
+        ZipInputStream zip = new ZipInputStream(fi)) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 Path out = targetDir.resolve(entry.getName()).normalize();
@@ -151,16 +142,16 @@ public final class TemurinJdkDownloader {
     private Path findJavaExecutable(Path dir, String execName) throws Exception {
         try (var walk = Files.walk(dir)) {
             return walk
-                    .filter(p -> p.getFileName().toString().equals(execName))
-                    .filter(p -> p.getParent().getFileName().toString().equals("bin"))
-                    .findFirst()
-                    .orElse(null);
+            .filter(p -> p.getFileName().toString().equals(execName))
+            .filter(p -> p.getParent().getFileName().toString().equals("bin"))
+            .findFirst()
+            .orElse(null);
         }
     }
 
     private void copyDirectory(Path src, Path dst) throws IOException {
         try (var walk = Files.walk(src)) {
-            for (Path source : (Iterable<Path>) walk::iterator) {
+            for (Path source : (Iterable < Path>) walk::iterator) {
                 Path target = dst.resolve(src.relativize(source));
                 if (Files.isDirectory(source)) {
                     Files.createDirectories(target);
@@ -228,4 +219,6 @@ public final class TemurinJdkDownloader {
     private boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
+
+    private record ReleaseAsset(String downloadUrl, String fileName, String sha256) {}
 }

@@ -7,11 +7,11 @@ import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
+import org.cef.callback.CefContextMenuParams;
+import org.cef.callback.CefMenuModel;
 import org.cef.handler.CefContextMenuHandlerAdapter;
 import org.cef.handler.CefRequestHandlerAdapter;
 import org.cef.network.CefRequest;
-import org.cef.callback.CefContextMenuParams;
-import org.cef.callback.CefMenuModel;
 
 import javax.swing.*;
 import java.awt.*;
@@ -25,24 +25,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class VoltLauncher {
 
     private static final Color APP_BG = new Color(3, 9, 18);
-
-    private static volatile RestServer restServer;
-    private static volatile CefApp    cefApp;
-    private static volatile CefBrowser mainBrowser;
-    private static volatile JFrame    mainFrame;
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
+    private static volatile RestServer restServer;
+    private static volatile CefApp cefApp;
+    private static volatile CefBrowser mainBrowser;
+    private static volatile JFrame mainFrame;
 
     static void main(String[] args) {
         registerShutdownHook();
         startParentExitWatcher(resolveParentPid(args));
 
-        restServer = new RestServer(
-                7070,
-                VoltLauncher::minimizeMainWindow,
-                VoltLauncher::toggleMaximizeMainWindow,
-                VoltLauncher::requestCloseMainWindow,
-                VoltLauncher::openAuthPopup
-        );
+        restServer = new RestServer( 7070, VoltLauncher::minimizeMainWindow, VoltLauncher::toggleMaximizeMainWindow, VoltLauncher::requestCloseMainWindow, VoltLauncher::openAuthPopup );
         restServer.start();
 
         String[] cefArgs = Arrays.copyOf(args, args.length + 1);
@@ -75,7 +68,7 @@ public class VoltLauncher {
         client.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
             @Override
             public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
-                                            CefContextMenuParams params, CefMenuModel model) {
+            CefContextMenuParams params, CefMenuModel model) {
                 model.clear();
             }
         });
@@ -105,18 +98,18 @@ public class VoltLauncher {
             int mx = e.getX();
             int my = e.getY();
             browser.executeJavaScript("""
-                (function() {
-                    var el = document.elementFromPoint(%d, %d);
-                    while (el && el !== document.body) {
-                        var s = getComputedStyle(el);
-                        if ((s.overflow + s.overflowY).match(/auto|scroll/)) {
-                            el.scrollTop += %d;
-                            return;
-                        }
-                        el = el.parentElement;
+            (function() {
+                var el = document.elementFromPoint(%d, %d);
+                while (el && el !== document.body) {
+                    var s = getComputedStyle(el);
+                    if ((s.overflow + s.overflowY).match(/auto|scroll/)) {
+                        el.scrollTop += %d;
+                        return;
                     }
-                    window.scrollBy(0, %d);
-                })();
+                    el = el.parentElement;
+                }
+                window.scrollBy(0, %d);
+            })();
             """.formatted(mx, my, pixels, pixels), browser.getURL(), 0);
         });
 
@@ -128,10 +121,7 @@ public class VoltLauncher {
                 if (debounce != null && debounce.isRunning()) {
                     debounce.restart();
                 } else {
-                    debounce = new Timer(80, ev ->
-                            browser.executeJavaScript(
-                                    "window.dispatchEvent(new Event('resize'));",
-                                    browser.getURL(), 0));
+                    debounce = new Timer(80, ev -> browser.executeJavaScript( "window.dispatchEvent(new Event('resize'));", browser.getURL(), 0));
                     debounce.setRepeats(false);
                     debounce.start();
                 }
@@ -161,7 +151,7 @@ public class VoltLauncher {
             popupClient.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
                 @Override
                 public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
-                                                CefContextMenuParams params, CefMenuModel model) {
+                CefContextMenuParams params, CefMenuModel model) {
                     model.clear();
                 }
             });
@@ -169,14 +159,14 @@ public class VoltLauncher {
             popupClient.addRequestHandler(new CefRequestHandlerAdapter() {
                 @Override
                 public boolean onBeforeBrowse(CefBrowser browser, CefFrame frame,
-                                              CefRequest request, boolean userGesture, boolean isRedirect) {
+                CefRequest request, boolean userGesture, boolean isRedirect) {
                     String url = request.getURL();
                     if (url != null && url.startsWith(OAuthClient.REDIRECT_URI)) {
                         handleRedirectUrl(url);
                         SwingUtilities.invokeLater(() -> {
                             browser.close(true);
                             JFrame popup = popupRef[0];
-                            if (popup != null) popup.dispose();
+                            if (popup != null) { popup.dispose(); }
                         });
                         return true;
                     }
@@ -199,9 +189,7 @@ public class VoltLauncher {
             popupUI.addMouseWheelListener(e -> {
                 e.consume();
                 int pixels = (int) (e.getPreciseWheelRotation() * 80);
-                popupBrowser.executeJavaScript(
-                        "window.scrollBy(0, " + pixels + ");",
-                        popupBrowser.getURL(), 0);
+                popupBrowser.executeJavaScript( "window.scrollBy(0, " + pixels + ");", popupBrowser.getURL(), 0);
             });
 
             popup.add(popupUI, BorderLayout.CENTER);
@@ -225,13 +213,13 @@ public class VoltLauncher {
             String code = null, state = null, error = null, errorDesc = null;
             for (String part : query.split("&")) {
                 int eq = part.indexOf('=');
-                if (eq < 0) continue;
-                String key   = URLDecoder.decode(part.substring(0, eq),  StandardCharsets.UTF_8);
+                if (eq < 0) { continue; }
+                String key = URLDecoder.decode(part.substring(0, eq), StandardCharsets.UTF_8);
                 String value = URLDecoder.decode(part.substring(eq + 1), StandardCharsets.UTF_8);
                 switch (key) {
-                    case "code"              -> code      = value;
-                    case "state"             -> state     = value;
-                    case "error"             -> error     = value;
+                    case "code" -> code = value;
+                    case "state" -> state = value;
+                    case "error" -> error = value;
                     case "error_description" -> errorDesc = value;
                 }
             }
@@ -331,7 +319,7 @@ public class VoltLauncher {
 
         try { if (cefApp != null) cefApp.dispose(); } catch (Exception ignored) {}
 
-        if (exitJvm) System.exit(0);
+        if (exitJvm) { System.exit(0); }
     }
 
     private static void registerShutdownHook() {
@@ -340,7 +328,7 @@ public class VoltLauncher {
 
     private static long resolveParentPid(String[] args) {
         for (String arg : args) {
-            if (!arg.startsWith("--parent-pid=")) continue;
+            if (!arg.startsWith("--parent-pid=")) { continue; }
             try { return Long.parseLong(arg.substring("--parent-pid=".length())); }
             catch (NumberFormatException ignored) { return -1; }
         }

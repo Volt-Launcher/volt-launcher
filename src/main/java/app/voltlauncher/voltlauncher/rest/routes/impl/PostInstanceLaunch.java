@@ -1,6 +1,5 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
-
 import app.voltlauncher.voltlauncher.auth.MinecraftAccountSession;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.rest.MethodType;
@@ -13,8 +12,8 @@ import org.json.JSONObject;
 
 @Route(path = "/api/instances/{name}/launch", method = MethodType.POST)
 public class PostInstanceLaunch implements IRoute {
-    private MinecraftLauncherService minecraftLauncher;
-    private MicrosoftAuth msAuth;
+    private final MinecraftLauncherService minecraftLauncher;
+    private final MicrosoftAuth msAuth;
 
     public PostInstanceLaunch(MinecraftLauncherService minecraftLauncher, MicrosoftAuth msAuth) {
         this.minecraftLauncher = minecraftLauncher;
@@ -46,3 +45,4 @@ public class PostInstanceLaunch implements IRoute {
         }
     }
 }
+

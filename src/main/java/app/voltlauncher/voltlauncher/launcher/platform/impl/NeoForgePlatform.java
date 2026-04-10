@@ -6,7 +6,8 @@ import app.voltlauncher.voltlauncher.launcher.platform.version.IVersionResolver;
 
 public final class NeoForgePlatform extends AbstractPlatform {
 
-	public NeoForgePlatform(IVersionResolver versionResolver) {
-		super(PlatformRegistry.NEOFORGE_ID, "NeoForge", versionResolver);
-	}
+    public NeoForgePlatform(IVersionResolver versionResolver) {
+        super(PlatformRegistry.NEOFORGE_ID, "NeoForge", versionResolver);
+    }
 }
+
