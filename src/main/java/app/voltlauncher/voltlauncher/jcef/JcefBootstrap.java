@@ -114,8 +114,15 @@ public final class JcefBootstrap {
         CefApp.startup(args);
 
         CefSettings settings = new CefSettings();
-        settings.windowless_rendering_enabled = false;
-        settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_DISABLE;
+        settings.windowless_rendering_enabled = true;
+        settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
+        Path cefLogDir = AppPaths.logsDirectory();
+        Files.createDirectories(cefLogDir);
+        settings.log_file = cefLogDir.resolve("jcef.log").toAbsolutePath().toString();
+        Path cacheDir = AppPaths.jcefCacheDirectory();
+        Files.createDirectories(cacheDir);
+        settings.root_cache_path = cacheDir.toAbsolutePath().toString();
+        settings.cache_path = cacheDir.resolve("default").toAbsolutePath().toString();
         // resources_dir_path zeigt auf das Verzeichnis mit libjcef.so,
         // dort liegen auch icudtl.dat, cef.pak, devtools_resources.pak etc.
         settings.resources_dir_path = nativesDir.toAbsolutePath().toString();

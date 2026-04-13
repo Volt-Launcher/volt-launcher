@@ -25,10 +25,6 @@ public final class AppPaths {
         return baseDirectory().resolve("logs");
     }
 
-    public static Path minecraftDirectory() {
-        return baseDirectory().resolve("minecraft");
-    }
-
     public static Path masterKeyPath() {
         return securityDirectory().resolve("master.key");
     }
@@ -63,6 +59,10 @@ public final class AppPaths {
 
     public static Path jcefInstallDirectory() {
         return baseDirectory().resolve("jcef");
+    }
+
+    public static Path jcefCacheDirectory() {
+        return baseDirectory().resolve("jcef-cache");
     }
 }
 
