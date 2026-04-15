@@ -7,46 +7,50 @@ import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
+import org.cef.callback.CefContextMenuParams;
+import org.cef.callback.CefMenuModel;
 import org.cef.handler.CefContextMenuHandlerAdapter;
 import org.cef.handler.CefRequestHandlerAdapter;
 import org.cef.network.CefRequest;
-import org.cef.callback.CefContextMenuParams;
-import org.cef.callback.CefMenuModel;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.URI;
 import java.net.URLDecoder;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VoltLauncher {
 
     private static final Color APP_BG = new Color(3, 9, 18);
-
-    private static volatile RestServer restServer;
-    private static volatile CefApp    cefApp;
-    private static volatile CefBrowser mainBrowser;
-    private static volatile JFrame    mainFrame;
+    private static final boolean WINDOWLESS_RENDERING = true;
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
+    private static final AtomicBoolean BROWSER_FOCUS_STATE = new AtomicBoolean(false);
+    private static final Object DIAG_LOCK = new Object();
+    private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    private static volatile RestServer restServer;
+    private static volatile CefApp cefApp;
+    private static volatile CefBrowser mainBrowser;
+    private static volatile JFrame mainFrame;
 
     static void main(String[] args) {
+        installDiagnostics();
         registerShutdownHook();
         startParentExitWatcher(resolveParentPid(args));
 
-        restServer = new RestServer(
-                7070,
-                VoltLauncher::minimizeMainWindow,
-                VoltLauncher::toggleMaximizeMainWindow,
-                VoltLauncher::requestCloseMainWindow,
-                VoltLauncher::openAuthPopup
-        );
+        restServer = new RestServer( 7070, VoltLauncher::minimizeMainWindow, VoltLauncher::toggleMaximizeMainWindow, VoltLauncher::requestCloseMainWindow, VoltLauncher::openAuthPopup );
         restServer.start();
 
-        String[] cefArgs = Arrays.copyOf(args, args.length + 1);
-        cefArgs[args.length] = "--disable-features=OverlayScrollbar";
+        String[] cefArgs = withDefaultCefArgs(args);
 
         Thread.ofVirtual().start(() -> {
             try {
@@ -75,12 +79,12 @@ public class VoltLauncher {
         client.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
             @Override
             public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
-                                            CefContextMenuParams params, CefMenuModel model) {
+            CefContextMenuParams params, CefMenuModel model) {
                 model.clear();
             }
         });
 
-        CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
+        CefBrowser browser = client.createBrowser("http://localhost:7070/", WINDOWLESS_RENDERING, false);
         mainBrowser = browser;
         Component browserUI = browser.getUIComponent();
 
@@ -92,10 +96,21 @@ public class VoltLauncher {
         }
 
         browserUI.setFocusable(true);
+        browserUI.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                syncBrowserFocus(browser, browserUI, true);
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                syncBrowserFocus(browser, browserUI, false);
+            }
+        });
         browserUI.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                browserUI.requestFocusInWindow();
+                syncBrowserFocus(browser, browserUI, true);
             }
         });
 
@@ -105,18 +120,18 @@ public class VoltLauncher {
             int mx = e.getX();
             int my = e.getY();
             browser.executeJavaScript("""
-                (function() {
-                    var el = document.elementFromPoint(%d, %d);
-                    while (el && el !== document.body) {
-                        var s = getComputedStyle(el);
-                        if ((s.overflow + s.overflowY).match(/auto|scroll/)) {
-                            el.scrollTop += %d;
-                            return;
-                        }
-                        el = el.parentElement;
+            (function() {
+                var el = document.elementFromPoint(%d, %d);
+                while (el && el !== document.body) {
+                    var s = getComputedStyle(el);
+                    if ((s.overflow + s.overflowY).match(/auto|scroll/)) {
+                        el.scrollTop += %d;
+                        return;
                     }
-                    window.scrollBy(0, %d);
-                })();
+                    el = el.parentElement;
+                }
+                window.scrollBy(0, %d);
+            })();
             """.formatted(mx, my, pixels, pixels), browser.getURL(), 0);
         });
 
@@ -128,10 +143,7 @@ public class VoltLauncher {
                 if (debounce != null && debounce.isRunning()) {
                     debounce.restart();
                 } else {
-                    debounce = new Timer(80, ev ->
-                            browser.executeJavaScript(
-                                    "window.dispatchEvent(new Event('resize'));",
-                                    browser.getURL(), 0));
+                    debounce = new Timer(80, ev -> browser.executeJavaScript( "window.dispatchEvent(new Event('resize'));", browser.getURL(), 0));
                     debounce.setRepeats(false);
                     debounce.start();
                 }
@@ -147,7 +159,20 @@ public class VoltLauncher {
             }
         });
 
+        frame.addWindowFocusListener(new WindowFocusListener() {
+            @Override
+            public void windowGainedFocus(WindowEvent e) {
+                syncBrowserFocus(browser, browserUI, true);
+            }
+
+            @Override
+            public void windowLostFocus(WindowEvent e) {
+                syncBrowserFocus(browser, browserUI, false);
+            }
+        });
+
         frame.setVisible(true);
+        syncBrowserFocus(browser, browserUI, true);
     }
 
     private static void openAuthPopup(String authUrl) {
@@ -161,7 +186,7 @@ public class VoltLauncher {
             popupClient.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
                 @Override
                 public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
-                                                CefContextMenuParams params, CefMenuModel model) {
+                CefContextMenuParams params, CefMenuModel model) {
                     model.clear();
                 }
             });
@@ -169,14 +194,14 @@ public class VoltLauncher {
             popupClient.addRequestHandler(new CefRequestHandlerAdapter() {
                 @Override
                 public boolean onBeforeBrowse(CefBrowser browser, CefFrame frame,
-                                              CefRequest request, boolean userGesture, boolean isRedirect) {
+                CefRequest request, boolean userGesture, boolean isRedirect) {
                     String url = request.getURL();
                     if (url != null && url.startsWith(OAuthClient.REDIRECT_URI)) {
                         handleRedirectUrl(url);
                         SwingUtilities.invokeLater(() -> {
                             browser.close(true);
                             JFrame popup = popupRef[0];
-                            if (popup != null) popup.dispose();
+                            if (popup != null) { popup.dispose(); }
                         });
                         return true;
                     }
@@ -184,7 +209,7 @@ public class VoltLauncher {
                 }
             });
 
-            CefBrowser popupBrowser = popupClient.createBrowser(authUrl, true, false);
+            CefBrowser popupBrowser = popupClient.createBrowser(authUrl, WINDOWLESS_RENDERING, false);
             popupBrowser.setWindowlessFrameRate(60);
 
             JFrame popup = new JFrame("Bei Minecraft anmelden");
@@ -199,9 +224,7 @@ public class VoltLauncher {
             popupUI.addMouseWheelListener(e -> {
                 e.consume();
                 int pixels = (int) (e.getPreciseWheelRotation() * 80);
-                popupBrowser.executeJavaScript(
-                        "window.scrollBy(0, " + pixels + ");",
-                        popupBrowser.getURL(), 0);
+                popupBrowser.executeJavaScript( "window.scrollBy(0, " + pixels + ");", popupBrowser.getURL(), 0);
             });
 
             popup.add(popupUI, BorderLayout.CENTER);
@@ -225,13 +248,13 @@ public class VoltLauncher {
             String code = null, state = null, error = null, errorDesc = null;
             for (String part : query.split("&")) {
                 int eq = part.indexOf('=');
-                if (eq < 0) continue;
-                String key   = URLDecoder.decode(part.substring(0, eq),  StandardCharsets.UTF_8);
+                if (eq < 0) { continue; }
+                String key = URLDecoder.decode(part.substring(0, eq), StandardCharsets.UTF_8);
                 String value = URLDecoder.decode(part.substring(eq + 1), StandardCharsets.UTF_8);
                 switch (key) {
-                    case "code"              -> code      = value;
-                    case "state"             -> state     = value;
-                    case "error"             -> error     = value;
+                    case "code" -> code = value;
+                    case "state" -> state = value;
+                    case "error" -> error = value;
                     case "error_description" -> errorDesc = value;
                 }
             }
@@ -331,7 +354,7 @@ public class VoltLauncher {
 
         try { if (cefApp != null) cefApp.dispose(); } catch (Exception ignored) {}
 
-        if (exitJvm) System.exit(0);
+        if (exitJvm) { System.exit(0); }
     }
 
     private static void registerShutdownHook() {
@@ -340,7 +363,7 @@ public class VoltLauncher {
 
     private static long resolveParentPid(String[] args) {
         for (String arg : args) {
-            if (!arg.startsWith("--parent-pid=")) continue;
+            if (!arg.startsWith("--parent-pid=")) { continue; }
             try { return Long.parseLong(arg.substring("--parent-pid=".length())); }
             catch (NumberFormatException ignored) { return -1; }
         }
@@ -352,5 +375,95 @@ public class VoltLauncher {
         ProcessHandle parent = ProcessHandle.of(parentPid).orElse(null);
         if (parent == null) return;
         parent.onExit().thenRun(VoltLauncher::shutdown);
+    }
+
+    private static void syncBrowserFocus(CefBrowser browser, Component browserUI, boolean focused) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> syncBrowserFocus(browser, browserUI, focused));
+            return;
+        }
+        if (browser == null) return;
+        if (BROWSER_FOCUS_STATE.getAndSet(focused) == focused) {
+            return;
+        }
+        if (focused && browserUI != null && !browserUI.hasFocus()) {
+            browserUI.requestFocusInWindow();
+        }
+        try {
+            browser.setFocus(focused);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String[] withDefaultCefArgs(String[] args) {
+        String[] result = Arrays.copyOf(args, args.length);
+        result = appendArgIfMissing(result, "--disable-features=OverlayScrollbar");
+        if (isLinux()) {
+            // Linux Mesa/Vulkan-Treiber verursachen bei einigen Setups Fokus-/Renderer-Haenger.
+            result = appendArgIfMissing(result, "--disable-vulkan");
+            result = appendArgIfMissing(result, "--disable-gpu");
+            result = appendArgIfMissing(result, "--disable-gpu-compositing");
+        }
+        result = appendArgIfMissing(result, "--disable-background-networking");
+        return result;
+    }
+
+    private static String[] appendArgIfMissing(String[] args, String arg) {
+        for (String existing : args) {
+            if (arg.equals(existing)) {
+                return args;
+            }
+        }
+        String[] extended = Arrays.copyOf(args, args.length + 1);
+        extended[args.length] = arg;
+        return extended;
+    }
+
+    private static boolean isLinux() {
+        return System.getProperty("os.name", "").toLowerCase().contains("linux");
+    }
+
+    private static void installDiagnostics() {
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            if (throwable == null) {
+                System.err.println("[Launcher] Uncaught exception without throwable in thread: " + thread.getName());
+                return;
+            }
+            logUncaught(thread, throwable);
+        });
+    }
+
+    private static void logUncaught(Thread thread, Throwable throwable) {
+        StringWriter sw = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(sw));
+        StringBuilder dump = new StringBuilder();
+        dump.append('[').append(TS_FORMAT.format(LocalDateTime.now())).append("] Uncaught in ")
+            .append(thread.getName()).append(" (#").append(thread.threadId()).append(")\n")
+            .append(sw)
+            .append("\n--- Thread dump ---\n");
+
+        for (var entry : Thread.getAllStackTraces().entrySet()) {
+            Thread t = entry.getKey();
+            dump.append('"').append(t.getName()).append('"')
+                .append(" id=").append(t.threadId())
+                .append(" state=").append(t.getState())
+                .append('\n');
+            for (StackTraceElement ste : entry.getValue()) {
+                dump.append("    at ").append(ste).append('\n');
+            }
+        }
+
+        String payload = dump.toString();
+        synchronized (DIAG_LOCK) {
+            System.err.println(payload);
+            try {
+                Path logsDir = AppPaths.logsDirectory();
+                Files.createDirectories(logsDir);
+                Path file = logsDir.resolve("launcher-uncaught.log");
+                Files.writeString(file, payload + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            } catch (IOException io) {
+                System.err.println("[Launcher] Konnte Uncaught-Logdatei nicht schreiben: " + io.getMessage());
+            }
+        }
     }
 }

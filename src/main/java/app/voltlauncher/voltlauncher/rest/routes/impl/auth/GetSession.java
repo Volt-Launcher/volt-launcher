@@ -9,7 +9,7 @@ import org.json.JSONObject;
 
 @Route(path = "/api/session")
 public class GetSession implements IRoute {
-    private MicrosoftAuth msAuth;
+    private final MicrosoftAuth msAuth;
 
     public GetSession(MicrosoftAuth msAuth) {
         this.msAuth = msAuth;
@@ -36,3 +36,4 @@ public class GetSession implements IRoute {
         }
     }
 }
+

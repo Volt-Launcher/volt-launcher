@@ -8,7 +8,7 @@ import io.javalin.http.Context;
 
 @Route(path = "/api/window/minimize", method = MethodType.POST)
 public class PostWindowMinimize implements IRoute {
-    private RestServer.WindowAction minimizeWindowAction;
+    private final RestServer.WindowAction minimizeWindowAction;
 
     public PostWindowMinimize(RestServer.WindowAction minimizeWindowAction) {
         this.minimizeWindowAction = minimizeWindowAction;
@@ -20,3 +20,4 @@ public class PostWindowMinimize implements IRoute {
         catch (Exception e) { ctx.status(500).contentType("application/json").result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}"); }
     }
 }
+

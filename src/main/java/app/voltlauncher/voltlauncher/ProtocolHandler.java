@@ -11,11 +11,11 @@ import java.util.function.Consumer;
 public final class ProtocolHandler {
 
     private static ServerSocket serverSocket;
-    private static Consumer<String> callbackHandler;
+    private static Consumer < String> callbackHandler;
 
     private ProtocolHandler() {}
 
-    public static void startListening(int port, Consumer<String> onCallback) {
+    public static void startListening(int port, Consumer < String> onCallback) {
         callbackHandler = onCallback;
 
         Thread thread = new Thread(() -> {
@@ -30,9 +30,8 @@ public final class ProtocolHandler {
                     }
 
                     Thread clientThread = new Thread(() -> {
-                        try (BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(client.getInputStream()));
-                             OutputStream out = client.getOutputStream()) {
+                        try (BufferedReader reader = new BufferedReader( new InputStreamReader(client.getInputStream()));
+                        OutputStream out = client.getOutputStream()) {
 
                             String requestLine = reader.readLine();
                             if (requestLine != null && requestLine.startsWith("GET ")) {
@@ -40,10 +39,10 @@ public final class ProtocolHandler {
                                 String path = parts.length > 1 ? parts[1] : "/";
 
                                 String response =
-                                        "HTTP/1.1 200 OK\r\n" +
-                                        "Content-Type: text/html\r\n" +
-                                        "\r\n" +
-                                        "You can close this window and return to the application.";
+                                "HTTP/1.1 200 OK\r\n" +
+                                "Content-Type: text/html\r\n" +
+                                "\r\n" +
+                                "You can close this window and return to the application.";
 
                                 out.write(response.getBytes());
                                 out.flush();
@@ -86,3 +85,4 @@ public final class ProtocolHandler {
         }
     }
 }
+

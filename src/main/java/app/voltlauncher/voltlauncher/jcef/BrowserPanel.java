@@ -13,9 +13,8 @@ import java.nio.ByteBuffer;
 public class BrowserPanel extends JPanel {
 
     private static final Color APP_BG = new Color(3, 9, 18);
-
-    private volatile BufferedImage cachedFrame;
     private final Object frameLock = new Object();
+    private volatile BufferedImage cachedFrame;
 
     public BrowserPanel() {
         super(new BorderLayout());
@@ -34,7 +33,7 @@ public class BrowserPanel extends JPanel {
         if (rh != null) {
             rh.setOnPaintListener((CefPaintEvent event) -> {
                 if (event == null) return;
-                int width  = event.getWidth();
+                int width = event.getWidth();
                 int height = event.getHeight();
                 ByteBuffer buffer = event.getRenderedFrame();
                 if (width <= 0 || height <= 0 || buffer == null) return;

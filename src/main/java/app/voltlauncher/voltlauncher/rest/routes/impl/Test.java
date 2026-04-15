@@ -1,6 +1,5 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
-
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
 import app.voltlauncher.voltlauncher.rest.routes.Route;
 import io.javalin.http.Context;
@@ -15,3 +14,4 @@ public class Test implements IRoute {
         ctx.contentType("application/json").result(json.toString());
     }
 }
+

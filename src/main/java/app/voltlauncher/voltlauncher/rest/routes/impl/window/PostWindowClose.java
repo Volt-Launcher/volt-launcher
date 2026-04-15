@@ -8,7 +8,7 @@ import io.javalin.http.Context;
 
 @Route(path = "/api/window/close", method = MethodType.POST)
 public class PostWindowClose implements IRoute {
-    private RestServer.WindowAction closeWindowAction;
+    private final RestServer.WindowAction closeWindowAction;
 
     public PostWindowClose(RestServer.WindowAction closeWindowAction) {
         this.closeWindowAction = closeWindowAction;
@@ -20,3 +20,4 @@ public class PostWindowClose implements IRoute {
         catch (Exception e) { ctx.status(500).contentType("application/json").result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}"); }
     }
 }
+
