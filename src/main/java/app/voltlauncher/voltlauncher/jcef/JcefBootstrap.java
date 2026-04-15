@@ -42,7 +42,7 @@ public final class JcefBootstrap {
         }
         Files.createDirectories(installDir);
         String platform = detectPlatform();
-        String filename = platform + (isWindows() ? ".zip" : ".tar.gz");
+        String filename = getPlatformArchive();
         String url = DOWNLOAD_BASE + filename;
         System.out.println("[JCEF] Lade herunter: " + url);
         Path archive = installDir.resolve("_download" + (isWindows() ? ".zip" : ".tar.gz"));
@@ -195,6 +195,31 @@ public final class JcefBootstrap {
             return "linux-aarch64";
         }
         return "linux-amd64";
+    }
+
+    private static String getPlatformArchive() {
+        String os = System.getProperty("os.name").toLowerCase();
+        String arch = System.getProperty("os.arch").toLowerCase();
+
+        if (os.contains("mac")) {
+            if (arch.contains("aarch64") || arch.contains("arm64")) {
+                return "macosx-arm64.tar.gz";
+            }
+            return "macosx-amd64.tar.gz";
+        }
+
+        if (os.contains("win")) {
+            if (arch.contains("aarch64") || arch.contains("arm64")) {
+                return "windows-arm64.tar.gz";
+            }
+            return "windows-amd64.tar.gz";
+        }
+
+        if (arch.contains("aarch64") || arch.contains("arm64")) {
+            return "linux-arm64.tar.gz";
+        }
+
+        return "linux-amd64.tar.gz";
     }
 
     private static boolean isWindows() {
