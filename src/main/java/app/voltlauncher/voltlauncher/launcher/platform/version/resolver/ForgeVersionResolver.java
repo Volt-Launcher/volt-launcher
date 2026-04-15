@@ -72,7 +72,10 @@ public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolv
 
         String fullForgeVersion = minecraftVersion + "-" + loaderVersion;
         String installerUrl = FORGE_INSTALLER_URL.formatted(fullForgeVersion, fullForgeVersion);
-        JSONObject profile = loadVersionJsonFromInstaller(installerUrl, "forge-" + fullForgeVersion);
+        InstallerData installerData = loadFromInstaller(installerUrl, "forge-" + fullForgeVersion);
+
+        JSONObject profile = installerData.versionJson();
+        JSONObject installProfile = installerData.installProfile();
 
         JSONObject base = super.resolveMetadata("forge:" + minecraftVersion);
         mergeLibraries(base, profile);
@@ -91,6 +94,10 @@ public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolv
         base.put("id", "forge:" + minecraftVersion + ":" + loaderVersion);
         base.put("jar", minecraftVersion);
         base.put("voltPlatform", PlatformRegistry.FORGE_ID);
+        if (installProfile != null && !installProfile.isEmpty()) {
+            base.put("voltInstallProfile", installProfile);
+            base.put("voltInstallerPath", installerData.installerJar().toAbsolutePath().toString());
+        }
         return base;
     }
 
@@ -117,7 +124,7 @@ public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolv
         return new Selection(raw, "");
     }
 
-    private JSONObject loadVersionJsonFromInstaller(String installerUrl, String cacheName) throws Exception {
+    private InstallerData loadFromInstaller(String installerUrl, String cacheName) throws Exception {
         Path cacheDir = Paths.get(System.getProperty("java.io.tmpdir"), "volt-launcher", "loader-version-json");
         Files.createDirectories(cacheDir);
         Path installerJar = cacheDir.resolve(cacheName + "-installer.jar");
@@ -128,8 +135,14 @@ public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolv
             if (versionEntry == null) {
                 throw new IllegalStateException("Forge installer has no version.json: " + installerUrl);
             }
-            byte[] raw = zip.getInputStream(versionEntry).readAllBytes();
-            return new JSONObject(new String(raw, StandardCharsets.UTF_8));
+            JSONObject versionJson = new JSONObject(new String(zip.getInputStream(versionEntry).readAllBytes(), StandardCharsets.UTF_8));
+
+            var profileEntry = zip.getEntry("install_profile.json");
+            JSONObject installProfile = profileEntry == null
+                    ? new JSONObject()
+                    : new JSONObject(new String(zip.getInputStream(profileEntry).readAllBytes(), StandardCharsets.UTF_8));
+
+            return new InstallerData(versionJson, installProfile, installerJar);
         }
     }
 
@@ -177,5 +190,7 @@ public final class ForgeVersionResolver extends AbstractDelegatingPlatformResolv
     }
 
     private record Selection(String minecraftVersion, String loaderVersion) {}
+
+    private record InstallerData(JSONObject versionJson, JSONObject installProfile, Path installerJar) {}
 }
 

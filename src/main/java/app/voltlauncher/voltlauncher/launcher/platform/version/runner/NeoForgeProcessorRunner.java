@@ -20,6 +20,8 @@ public final class NeoForgeProcessorRunner {
     private static final String VAR_LIBRARY_DIR = "LIBRARY_DIR";
     private static final String VAR_INSTALLER = "INSTALLER";
     private static final String VAR_MINECRAFT_JAR = "MINECRAFT_JAR";
+    private static final String VAR_SIDE = "SIDE";
+    private static final String VAR_ROOT = "ROOT";
 
     private final JSONObject installProfile;
     private final Path installerJar;
@@ -85,6 +87,7 @@ public final class NeoForgeProcessorRunner {
     private void runProcessor(JSONObject proc) throws Exception {
         Path processorJar = resolveGav(proc.getString("jar"));
         String mainClass = readMainClass(processorJar);
+        boolean fatProcessorJar = proc.getString("jar").endsWith(":all");
 
         List<String> classpath = new ArrayList<>();
         classpath.add(processorJar.toAbsolutePath().toString());
@@ -92,7 +95,12 @@ public final class NeoForgeProcessorRunner {
         JSONArray cpArr = proc.optJSONArray("classpath");
         if (cpArr != null) {
             for (int i = 0; i < cpArr.length(); i++) {
-                classpath.add(resolveGav(cpArr.getString(i)).toAbsolutePath().toString());
+                String dep = cpArr.getString(i);
+                if (fatProcessorJar && dep.startsWith("org.ow2.asm:")) {
+                    // Avoid module export collisions for fat tools (e.g. ForgeAutoRenamingTool:all).
+                    continue;
+                }
+                classpath.add(resolveGav(dep).toAbsolutePath().toString());
             }
         }
 
@@ -150,6 +158,14 @@ public final class NeoForgeProcessorRunner {
         if (VAR_MINECRAFT_JAR.equals(key)) {
             return minecraftClientJar.toAbsolutePath().toString();
         }
+        if (VAR_SIDE.equals(key)) {
+            // This runner executes client-side processors only.
+            return "client";
+        }
+        if (VAR_ROOT.equals(key)) {
+            Path root = librariesDir.getParent();
+            return root != null ? root.toAbsolutePath().toString() : librariesDir.toAbsolutePath().toString();
+        }
 
         JSONObject dataMap = installProfile.optJSONObject("data");
         if (dataMap == null || !dataMap.has(key)) {
@@ -182,24 +198,42 @@ public final class NeoForgeProcessorRunner {
             throw new IllegalArgumentException("Invalid Maven GAV: " + gav);
         }
 
+        ArtifactSpec spec = parseArtifactSpec(parts);
+
+        String fileName = spec.artifact() + "-" + spec.version()
+                + (spec.classifier().isBlank() ? "" : "-" + spec.classifier())
+                + "." + spec.extension();
+
+        String relPath = spec.group().replace('.', '/') + "/" + spec.artifact() + "/" + spec.version() + "/" + fileName;
+        return librariesDir.resolve(relPath);
+    }
+
+    private ArtifactSpec parseArtifactSpec(String[] parts) {
         String group = parts[0];
         String artifact = parts[1];
         String version = parts[2];
         String classifier = parts.length >= 4 ? parts[3] : "";
-        String ext = "jar";
+        String extension = "jar";
 
-        int atSign = classifier.indexOf('@');
-        if (atSign >= 0) {
-            ext = classifier.substring(atSign + 1);
-            classifier = classifier.substring(0, atSign);
+        int versionAt = version.indexOf('@');
+        if (versionAt >= 0) {
+            String extFromVersion = version.substring(versionAt + 1).trim();
+            if (!extFromVersion.isBlank()) {
+                extension = extFromVersion;
+            }
+            version = version.substring(0, versionAt);
         }
 
-        String fileName = artifact + "-" + version
-                + (classifier.isBlank() ? "" : "-" + classifier)
-                + "." + ext;
+        int classifierAt = classifier.indexOf('@');
+        if (classifierAt >= 0) {
+            String extFromClassifier = classifier.substring(classifierAt + 1).trim();
+            if (!extFromClassifier.isBlank()) {
+                extension = extFromClassifier;
+            }
+            classifier = classifier.substring(0, classifierAt);
+        }
 
-        String relPath = group.replace('.', '/') + "/" + artifact + "/" + version + "/" + fileName;
-        return librariesDir.resolve(relPath);
+        return new ArtifactSpec(group, artifact, version, classifier, extension);
     }
 
     private Path extractFromInstaller(String installerEntryPath) {
@@ -207,7 +241,8 @@ public final class NeoForgeProcessorRunner {
             String entryName = installerEntryPath.startsWith("/") ? installerEntryPath.substring(1) : installerEntryPath;
 
             String safeName = entryName.replace('/', '_').replace('\\', '_');
-            Path extractDir = installerJar.getParent().resolve("extracted");
+            String installerKey = installerJar.getFileName().toString().replace('/', '_').replace('\\', '_');
+            Path extractDir = installerJar.getParent().resolve("extracted").resolve(installerKey);
             Files.createDirectories(extractDir);
             Path dest = extractDir.resolve(safeName);
 
@@ -276,4 +311,6 @@ public final class NeoForgeProcessorRunner {
             return false;
         }
     }
+
+    private record ArtifactSpec(String group, String artifact, String version, String classifier, String extension) {}
 }

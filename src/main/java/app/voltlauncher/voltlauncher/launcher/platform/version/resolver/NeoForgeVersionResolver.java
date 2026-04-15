@@ -79,7 +79,6 @@ public final class NeoForgeVersionResolver extends AbstractDelegatingPlatformRes
 
         JSONObject base = super.resolveMetadata("neoforge:" + minecraftVersion);
         mergeLibraries(base, profile);
-        mergeLibraries(base, installProfile);
         mergeArguments(base, profile);
 
         if (profile.has("mainClass")) {

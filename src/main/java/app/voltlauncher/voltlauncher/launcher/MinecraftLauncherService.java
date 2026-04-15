@@ -40,6 +40,7 @@ public final class MinecraftLauncherService {
     private final NamedLock launchLock = new NamedLock();
     private final ConcurrentHashMap < String, RunningInstance> runningMeta = new ConcurrentHashMap <> ();
     private final ConcurrentHashMap < String, LaunchState> launchStates = new ConcurrentHashMap <> ();
+
     public MinecraftLauncherService(String launcherClientId) {
         HttpFetcher http = new HttpFetcher();
         this.versionResolver = new VanillaVersionResolver(http);
@@ -50,8 +51,18 @@ public final class MinecraftLauncherService {
         this.commandBuilder = new LaunchCommandBuilder(launcherClientId);
         this.javaResolver = new JavaRuntimeResolver();
         this.processRegistry = new ProcessRegistry((key, _) -> {
-            runningMeta.remove(key);
-            launchStates.remove(key);
+            RunningInstance ended = runningMeta.remove(key);
+            LaunchState previous = launchStates.get(key);
+            if (previous == null || previous.result() == null || previous.phase() != LaunchPhase.RUNNING) {
+                return;
+            }
+            long uptimeMs = ended == null ? Long.MAX_VALUE : Math.max(0L, System.currentTimeMillis() - ended.startedAt());
+            boolean crashedEarly = uptimeMs < 10_000L;
+            String message = crashedEarly
+                    ? "Minecraft wurde kurz nach dem Start beendet. Bitte Log pruefen."
+                    : "Minecraft wurde beendet";
+            LaunchPhase phase = crashedEarly ? LaunchPhase.FAILED : LaunchPhase.IDLE;
+            launchStates.put(key, new LaunchState(phase, message, previous.result()));
         });
     }
 

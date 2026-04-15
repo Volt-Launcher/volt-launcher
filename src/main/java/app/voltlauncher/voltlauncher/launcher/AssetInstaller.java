@@ -80,11 +80,14 @@ public final class AssetInstaller {
         Path loggingConfigPath = resolveLoggingConfig(meta, assetsDir);
         LinkedHashSet < String> cp = new LinkedHashSet <> ();
         downloadLibraries(meta, libsDir, nativesDir, cp);
-        cp.add(clientJar.toString());
+        if (!meta.has("voltInstallProfile")) {
+            cp.add(clientJar.toString());
+        }
 
         if (meta.has("voltInstallProfile")) {
             JSONObject installProfile = meta.getJSONObject("voltInstallProfile");
             Path installerJar = Path.of(meta.getString("voltInstallerPath"));
+            downloadInstallProfileLibraries(installProfile, libsDir, nativesDir);
             String javaExec = ProcessHandle.current().info().command().orElse("java");
             NeoForgeProcessorRunner processorRunner = new NeoForgeProcessorRunner(installProfile, installerJar, libsDir, clientJar, javaExec);
             processorRunner.runIfNeeded();
@@ -190,9 +193,20 @@ public final class AssetInstaller {
         String classifier = parts.length >= 4 ? parts[3] : "";
 
         String extension = "jar";
+        int versionAt = version.indexOf('@');
+        if (versionAt >= 0) {
+            String extFromVersion = version.substring(versionAt + 1).trim();
+            if (!extFromVersion.isBlank()) {
+                extension = extFromVersion;
+            }
+            version = version.substring(0, versionAt);
+        }
         int at = classifier.indexOf('@');
         if (at >= 0) {
-            extension = classifier.substring(at + 1);
+            String extFromClassifier = classifier.substring(at + 1).trim();
+            if (!extFromClassifier.isBlank()) {
+                extension = extFromClassifier;
+            }
             classifier = classifier.substring(0, at);
         }
 
@@ -207,6 +221,17 @@ public final class AssetInstaller {
         http.download(baseRepo + rel + fileName, target, "");
         cp.add(target.toString());
         return true;
+    }
+
+    private void downloadInstallProfileLibraries(JSONObject installProfile, Path libsDir, Path nativesDir) throws Exception {
+        JSONArray installLibraries = installProfile.optJSONArray("libraries");
+        if (installLibraries == null || installLibraries.isEmpty()) {
+            return;
+        }
+        JSONObject pseudoMeta = new JSONObject();
+        pseudoMeta.put("libraries", new JSONArray(installLibraries.toString()));
+        // Processor dependencies must exist locally, but they are not part of the game runtime classpath.
+        downloadLibraries(pseudoMeta, libsDir, nativesDir, new LinkedHashSet<>());
     }
 
     private String safeVersionFolderName(String versionId) {
