@@ -1,8 +1,7 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
-
-import app.voltlauncher.voltlauncher.launcher.AvailableVersion;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
+import app.voltlauncher.voltlauncher.launcher.platform.version.AvailableVersion;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
 import app.voltlauncher.voltlauncher.rest.routes.Route;
 import io.javalin.http.Context;
@@ -11,7 +10,7 @@ import org.json.JSONObject;
 
 @Route(path = "/api/instances/versions")
 public class GetInstancesVersions implements IRoute {
-    private MinecraftLauncherService minecraftLauncher;
+    private final MinecraftLauncherService minecraftLauncher;
 
     public GetInstancesVersions(MinecraftLauncherService minecraftLauncher) {
         this.minecraftLauncher = minecraftLauncher;
@@ -25,10 +24,8 @@ public class GetInstancesVersions implements IRoute {
 
         try {
             JSONArray versions = new JSONArray();
-            for (AvailableVersion version : minecraftLauncher.listVersions(
-                    includeSnapshots,
-                    includeBetas,
-                    includeAlphas)) {
+            for (AvailableVersion version : minecraftLauncher.listVersions( includeSnapshots, includeBetas,
+            includeAlphas)) {
                 versions.put(toVersionJson(version));
             }
 
@@ -52,3 +49,4 @@ public class GetInstancesVersions implements IRoute {
         return json;
     }
 }
+

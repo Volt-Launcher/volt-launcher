@@ -4,14 +4,20 @@ import { Icon } from "@iconify/vue";
 import { useLauncher } from '@/composables/useLauncher';
 
 const {
-  availableVersions,
+  availableMinecraftVersions,
+  loaderVersions,
   newInstanceName,
-  selectedVersionId,
+  selectedPlatformId,
+  selectedMinecraftVersionId,
+  selectedLoaderVersionId,
   includeSnapshots,
   includeBetas,
   includeAlphas,
   isCreatingInstance,
   isLoadingVersions,
+  isLoadingLoaderVersions,
+  requiresLoaderSelection,
+  platformOptions,
   error,
   showCreateModal,
   selectedVersion,
@@ -20,9 +26,14 @@ const {
   handleCreateInstance,
 } = useLauncher();
 
-const versionOptions = computed(() => availableVersions.value.map((version) => ({
+const minecraftVersionOptions = computed(() => availableMinecraftVersions.value.map((version) => ({
   value: version.id,
   label: `${version.id} — ${formatVersionType(version.type)} — ${formatReleaseTime(version.releaseTime)}`,
+})));
+
+const loaderVersionOptions = computed(() => loaderVersions.value.map((version) => ({
+  value: version.id,
+  label: `${version.id} — ${formatVersionType(version.type)}`,
 })));
 </script>
 <template>
@@ -55,6 +66,14 @@ const versionOptions = computed(() => availableVersions.value.map((version) => (
             />
           </div>
           <div class="flex flex-col gap-1.5">
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">PLATTFORM</label>
+            <VoltSelect
+              v-model="selectedPlatformId"
+              :options="platformOptions"
+              placeholder="Plattform wählen"
+            />
+          </div>
+          <div class="flex flex-col gap-1.5">
             <div class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">VERSIONSFILTER</div>
             <div class="mt-1.5 flex flex-wrap gap-2">
               <VoltCheckbox v-model="includeSnapshots">Snapshots</VoltCheckbox>
@@ -65,12 +84,26 @@ const versionOptions = computed(() => availableVersions.value.map((version) => (
           <div class="flex flex-col gap-1.5">
             <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">MINECRAFT VERSION</label>
             <VoltSelect
-              v-model="selectedVersionId"
-              :options="versionOptions"
+              v-model="selectedMinecraftVersionId"
+              :options="minecraftVersionOptions"
               placeholder="Version wählen"
-              :disabled="isLoadingVersions || !availableVersions.length"
+              :disabled="isLoadingVersions || !availableMinecraftVersions.length"
             />
-            <div class="mt-1.5 text-[length:var(--text-2xs)] text-white/40">{{ isLoadingVersions ? 'Lade Versionen…' : `${availableVersions.length} Versionen verfügbar` }}</div>
+            <div class="mt-1.5 text-[length:var(--text-2xs)] text-white/40">{{ isLoadingVersions ? 'Lade Versionen…' : `${availableMinecraftVersions.length} Versionen verfügbar` }}</div>
+          </div>
+          <div v-if="requiresLoaderSelection" class="flex flex-col gap-1.5">
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">LOADER VERSION</label>
+            <VoltSelect
+              v-model="selectedLoaderVersionId"
+              :options="loaderVersionOptions"
+              placeholder="Loader-Version wählen"
+              :disabled="isLoadingLoaderVersions || !selectedMinecraftVersionId || !loaderVersions.length"
+            />
+            <div class="mt-1.5 text-[length:var(--text-2xs)] text-white/40">
+              {{ isLoadingLoaderVersions ? 'Lade Loader-Versionen…' : `${loaderVersions.length} Loader-Versionen verfügbar` }}
+            </div>
+          </div>
+          <div class="flex flex-col gap-1.5">
             <div v-if="selectedVersion" class="mt-2 rounded-lg border border-[var(--accent-border-soft)] bg-[var(--accent-bg-subtle)] p-2.5 text-[length:var(--text-xs)] text-white/60">
               <strong class="text-[var(--primary)]">{{ selectedVersion.id }}</strong> · {{ formatVersionType(selectedVersion.type) }} · {{ formatReleaseTime(selectedVersion.releaseTime) }}
             </div>
@@ -89,7 +122,7 @@ const versionOptions = computed(() => availableVersions.value.map((version) => (
             <button
               type="button"
               class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)] hover:shadow-[var(--shadow-accent-md)] disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="isCreatingInstance || !selectedVersionId || !newInstanceName.trim()"
+              :disabled="isCreatingInstance || !selectedMinecraftVersionId || (requiresLoaderSelection && !selectedLoaderVersionId) || !newInstanceName.trim()"
               @click="handleCreateInstance"
             >
               {{ isCreatingInstance ? 'Erstelle…' : 'Profil erstellen' }}

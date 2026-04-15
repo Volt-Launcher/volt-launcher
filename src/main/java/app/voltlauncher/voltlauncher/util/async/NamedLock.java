@@ -3,11 +3,10 @@ package app.voltlauncher.voltlauncher.util.async;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
 
 public final class NamedLock {
 
-    private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap();
+    private final ConcurrentHashMap < String, ReentrantLock> locks = new ConcurrentHashMap();
 
     public void withLock(String key, Runnable action) {
         ReentrantLock lock = lockFor(key);
@@ -19,7 +18,7 @@ public final class NamedLock {
         }
     }
 
-    public <V> V withLock(String key, Callable<V> task) throws Exception {
+    public <V> V withLock(String key, Callable < V> task) throws Exception {
         ReentrantLock lock = locks.computeIfAbsent(key, (String _) -> new ReentrantLock(true));
         lock.lock();
         try {
@@ -40,3 +39,4 @@ public final class NamedLock {
         return locks.computeIfAbsent(key, k -> new ReentrantLock());
     }
 }
+

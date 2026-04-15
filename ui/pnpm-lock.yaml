@@ -13,10 +13,10 @@ importers:
         version: 5.0.0(vue@3.5.32(typescript@5.9.3))
       '@tailwindcss/vite':
         specifier: ^4.2.2
-        version: 4.2.2(vite@8.0.8(@types/node@22.19.17)(jiti@2.6.1))
+        version: 4.2.2(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(jiti@2.6.1))
       '@volt-launcher/volt-ui':
         specifier: ^0.1.1
-        version: 0.1.1(vite@8.0.8(@types/node@22.19.17)(jiti@2.6.1))(vue@3.5.32(typescript@5.9.3))
+        version: 0.1.1(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(jiti@2.6.1))(vue@3.5.32(typescript@5.9.3))
       dompurify:
         specifier: ^3.4.0
         version: 3.4.0
@@ -2665,10 +2665,10 @@ snapshots:
       path-browserify: 1.0.1
       vscode-uri: 3.1.0
 
-  '@volt-launcher/volt-ui@0.1.1(vite@8.0.8(@types/node@22.19.17)(jiti@2.6.1))(vue@3.5.32(typescript@5.9.3))':
+  '@volt-launcher/volt-ui@0.1.1(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(jiti@2.6.1))(vue@3.5.32(typescript@5.9.3))':
     dependencies:
       '@iconify/vue': 5.0.0(vue@3.5.32(typescript@5.9.3))
-      '@tailwindcss/vite': 4.2.2(vite@8.0.8(@types/node@22.19.17)(jiti@2.6.1))
+      '@tailwindcss/vite': 4.2.2(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(jiti@2.6.1))
       tailwindcss: 4.2.2
       vue: 3.5.32(typescript@5.9.3)
     transitivePeerDependencies:

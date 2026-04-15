@@ -12,34 +12,30 @@ import java.util.function.Consumer;
 
 public class RouteManager {
     Javalin javalin;
-    private List<IRoute> routes;
+    private final List < IRoute> routes;
 
-    public RouteManager(List<IRoute> routes) {
+    public RouteManager(List < IRoute> routes) {
         this.routes = routes;
     }
 
     public RouteManager() {
-        this(new ArrayList<>());
+        this(new ArrayList <> ());
     }
 
     public void register(IRoute route) {
         this.routes.add(route);
     }
 
-    public Javalin createJavalin(Consumer<JavalinConfig> extConfig) {
+    public Javalin createJavalin(Consumer < JavalinConfig> extConfig) {
         return this.javalin = Javalin.create( config -> {
             extConfig.accept(config);
 
             for (IRoute route : routes) {
                 Class<?> clazz = route.getClass();
-                if(clazz.isAnnotationPresent(Route.class)) {
+                if (clazz.isAnnotationPresent(Route.class)) {
                     Route annotation = clazz.getAnnotation(Route.class);
 
-                    config.routes.addHttpHandler(
-                            HandlerType.findOrCreate(annotation.method().name()),
-                            annotation.path(),
-                            route::execute
-                    );
+                    config.routes.addHttpHandler( HandlerType.findOrCreate(annotation.method().name()), annotation.path(), route::execute );
 
                     System.out.println("Registered: " + annotation.method() + " " + annotation.path());
                 }
@@ -47,3 +43,4 @@ public class RouteManager {
         });
     }
 }
+

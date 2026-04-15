@@ -24,14 +24,14 @@ public final class AsyncRunner {
         });
     }
 
-    public static <T>CompletableFuture<T> supply(Supplier<T> supplier) {
+    public static <T > CompletableFuture < T> supply(Supplier < T> supplier) {
         return CompletableFuture.supplyAsync(supplier, EXECUTOR);
     }
 
     public static void shutdown(int timeoutSeconds) {
         EXECUTOR.shutdown();
         try {
-            if(!EXECUTOR.awaitTermination(timeoutSeconds, TimeUnit.SECONDS)) {
+            if (!EXECUTOR.awaitTermination(timeoutSeconds, TimeUnit.SECONDS)) {
                 EXECUTOR.shutdownNow();
             }
         } catch (InterruptedException exception) {
@@ -45,3 +45,4 @@ public final class AsyncRunner {
     }
 
 }
+

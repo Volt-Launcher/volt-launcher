@@ -13,3 +13,4 @@ public @interface Route {
     String path();
     MethodType method() default MethodType.GET;
 }
+

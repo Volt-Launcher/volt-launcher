@@ -8,9 +8,13 @@ import org.cef.CefApp;
 import org.cef.CefSettings;
 import org.cef.SystemBootstrap;
 
-import java.io.*;
-import java.net.*;
-import java.nio.file.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -18,7 +22,7 @@ public final class JcefBootstrap {
 
     private static final String JCEF_VERSION = "1.0.69";
     private static final String DOWNLOAD_BASE =
-            "https://github.com/jcefmaven/jcefbuild/releases/download/" + JCEF_VERSION + "/";
+    "https://github.com/jcefmaven/jcefbuild/releases/download/" + JCEF_VERSION + "/";
 
     private JcefBootstrap() {}
 
@@ -68,11 +72,11 @@ public final class JcefBootstrap {
     // ──────────────────────────── Natives-Dir ─────────────────────────────
 
     /**
-     * Ermittelt das Verzeichnis, in dem libjcef.so tatsächlich liegt.
-     * jcefbuild-Strukturen variieren je nach Version:
-     *   v1.x:    lib/linux64/libjcef.so
-     *   v143.x:  bin/libjcef.so  oder  libjcef.so (Root)
-     */
+    * Ermittelt das Verzeichnis, in dem libjcef.so tatsächlich liegt.
+    * jcefbuild-Strukturen variieren je nach Version:
+    * v1.x: lib/linux64/libjcef.so
+    * v143.x: bin/libjcef.so oder libjcef.so (Root)
+    */
     private static Path resolveNativesDir(Path installDir) throws IOException {
         return findNativeLib(installDir, "jcef").getParent();
     }
@@ -110,8 +114,15 @@ public final class JcefBootstrap {
         CefApp.startup(args);
 
         CefSettings settings = new CefSettings();
-        settings.windowless_rendering_enabled = false;
-        settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_DISABLE;
+        settings.windowless_rendering_enabled = true;
+        settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
+        Path cefLogDir = AppPaths.logsDirectory();
+        Files.createDirectories(cefLogDir);
+        settings.log_file = cefLogDir.resolve("jcef.log").toAbsolutePath().toString();
+        Path cacheDir = AppPaths.jcefCacheDirectory();
+        Files.createDirectories(cacheDir);
+        settings.root_cache_path = cacheDir.toAbsolutePath().toString();
+        settings.cache_path = cacheDir.resolve("default").toAbsolutePath().toString();
         // resources_dir_path zeigt auf das Verzeichnis mit libjcef.so,
         // dort liegen auch icudtl.dat, cef.pak, devtools_resources.pak etc.
         settings.resources_dir_path = nativesDir.toAbsolutePath().toString();
@@ -134,9 +145,9 @@ public final class JcefBootstrap {
         if (!Files.exists(helper)) {
             try (var walk = Files.walk(installDir, 3)) {
                 helper = walk
-                        .filter(p -> p.getFileName().toString().equals(helperName))
-                        .findFirst()
-                        .orElse(helper);
+                .filter(p -> p.getFileName().toString().equals(helperName))
+                .findFirst()
+                .orElse(helper);
             }
         }
         if (Files.exists(helper)) {
@@ -154,10 +165,9 @@ public final class JcefBootstrap {
         String filename = nativeLibFilename(libname);
         try (var walk = Files.walk(installDir)) {
             return walk
-                    .filter(p -> p.getFileName().toString().equals(filename))
-                    .findFirst()
-                    .orElseThrow(() -> new IOException(
-                            "Native Library nicht gefunden: " + filename + " in " + installDir));
+            .filter(p -> p.getFileName().toString().equals(filename))
+            .findFirst()
+            .orElseThrow(() -> new IOException( "Native Library nicht gefunden: " + filename + " in " + installDir));
         }
     }
 
@@ -206,9 +216,8 @@ public final class JcefBootstrap {
             conn.setConnectTimeout(15_000);
             conn.setReadTimeout(120_000);
             int status = conn.getResponseCode();
-            if (status == HttpURLConnection.HTTP_MOVED_TEMP
-                    || status == HttpURLConnection.HTTP_MOVED_PERM
-                    || status == 307 || status == 308) {
+            if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM
+            || status == 307 || status == 308) {
                 url = conn.getHeaderField("Location");
                 conn.disconnect();
                 continue;
@@ -217,7 +226,7 @@ public final class JcefBootstrap {
             long downloaded = 0;
             long lastPrinted = -1;
             try (InputStream in = conn.getInputStream();
-                 OutputStream out = Files.newOutputStream(target)) {
+            OutputStream out = Files.newOutputStream(target)) {
                 byte[] buf = new byte[65_536];
                 int read;
                 while ((read = in.read(buf)) != -1) {
@@ -227,8 +236,7 @@ public final class JcefBootstrap {
                         long pct = downloaded * 100 / total;
                         // Nur bei Änderung drucken – verhindert die riesigen Log-Floods
                         if (pct != lastPrinted) {
-                            System.out.printf("[JCEF] Download %d%% (%d / %d MB)%n",
-                                    pct, downloaded / 1_048_576, total / 1_048_576);
+                            System.out.printf("[JCEF] Download %d%% (%d / %d MB)%n", pct, downloaded / 1_048_576, total / 1_048_576);
                             lastPrinted = pct;
                         }
                     }
@@ -242,9 +250,8 @@ public final class JcefBootstrap {
     // ──────────────────────────── Extraktion ─────────────────────────────
 
     private static void extractTarGz(Path archive, Path targetDir) throws Exception {
-        try (InputStream fi = Files.newInputStream(archive);
-             GzipCompressorInputStream gz = new GzipCompressorInputStream(fi);
-             TarArchiveInputStream tar = new TarArchiveInputStream(gz)) {
+        try (InputStream fi = Files.newInputStream(archive); GzipCompressorInputStream gz = new GzipCompressorInputStream(fi);
+        TarArchiveInputStream tar = new TarArchiveInputStream(gz)) {
             TarArchiveEntry entry;
             while ((entry = tar.getNextTarEntry()) != null) {
                 Path dest = targetDir.resolve(stripTopDir(entry.getName())).normalize();
