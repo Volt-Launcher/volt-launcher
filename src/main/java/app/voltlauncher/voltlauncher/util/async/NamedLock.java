@@ -19,7 +19,7 @@ public final class NamedLock {
     }
 
     public <V> V withLock(String key, Callable < V> task) throws Exception {
-        ReentrantLock lock = locks.computeIfAbsent(key, (String _) -> new ReentrantLock(true));
+        ReentrantLock lock = locks.computeIfAbsent(key, (String unused) -> new ReentrantLock(true));
         lock.lock();
         try {
             return task.call();

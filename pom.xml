@@ -95,6 +95,7 @@
                     <executable>java</executable>
                     <arguments>
                         <argument>--enable-native-access=ALL-UNNAMED</argument>
+                        <argument>--sun-misc-unsafe-memory-access=allow</argument>
                         <argument>-Djava.awt.headless=false</argument>
                         <argument>-classpath</argument>
                         <classpath/>

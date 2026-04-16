@@ -13,6 +13,9 @@ import java.nio.ByteBuffer;
 public class BrowserPanel extends JPanel {
 
     private static final Color APP_BG = new Color(3, 9, 18);
+    private static final boolean IS_MAC =
+            System.getProperty("os.name").toLowerCase().contains("mac");
+
     private final Object frameLock = new Object();
     private volatile BufferedImage cachedFrame;
 
@@ -27,6 +30,11 @@ public class BrowserPanel extends JPanel {
 
         if (ui instanceof JComponent jc) {
             jc.setOpaque(false);
+        }
+
+        if (IS_MAC) {
+            add(ui, BorderLayout.CENTER);
+            return;
         }
 
         CefRenderHandler rh = browser.getRenderHandler();
@@ -51,6 +59,7 @@ public class BrowserPanel extends JPanel {
                 synchronized (frameLock) {
                     cachedFrame = img;
                 }
+                repaint();
             });
         } else {
             System.err.println("[BrowserPanel] Kein RenderHandler – Frame-Cache deaktiviert.");
@@ -61,15 +70,20 @@ public class BrowserPanel extends JPanel {
 
     @Override
     protected void paintComponent(Graphics g) {
+        if (IS_MAC) {
+            super.paintComponent(g);
+            return;
+        }
+
         BufferedImage current;
         synchronized (frameLock) {
             current = cachedFrame;
         }
         if (current != null) {
             g.drawImage(current, 0, 0, getWidth(), getHeight(), null);
-        } else {
-            g.setColor(APP_BG);
-            g.fillRect(0, 0, getWidth(), getHeight());
+            return;
         }
+        g.setColor(APP_BG);
+        g.fillRect(0, 0, getWidth(), getHeight());
     }
 }
