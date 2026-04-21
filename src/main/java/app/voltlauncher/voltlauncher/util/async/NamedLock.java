@@ -6,7 +6,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public final class NamedLock {
 
-    private final ConcurrentHashMap < String, ReentrantLock> locks = new ConcurrentHashMap();
+    private final ConcurrentHashMap < String, ReentrantLock> locks = new ConcurrentHashMap<>();
 
     public void withLock(String key, Runnable action) {
         ReentrantLock lock = lockFor(key);

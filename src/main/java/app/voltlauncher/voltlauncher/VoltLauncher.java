@@ -1,6 +1,7 @@
 package app.voltlauncher.voltlauncher;
 
 import app.voltlauncher.voltlauncher.auth.OAuthClient;
+import app.voltlauncher.voltlauncher.jcef.BrowserPanel;
 import app.voltlauncher.voltlauncher.jcef.JcefBootstrap;
 import app.voltlauncher.voltlauncher.rest.RestServer;
 import org.cef.CefApp;
@@ -28,11 +29,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class VoltLauncher {
 
     private static final Color APP_BG = new Color(3, 9, 18);
-    private static final boolean WINDOWLESS_RENDERING = true;
+    private static final boolean WINDOWLESS_RENDERING = resolveWindowlessRendering();
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
     private static final AtomicBoolean BROWSER_FOCUS_STATE = new AtomicBoolean(false);
     private static final Object DIAG_LOCK = new Object();
@@ -42,7 +44,7 @@ public class VoltLauncher {
     private static volatile CefBrowser mainBrowser;
     private static volatile JFrame mainFrame;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         installDiagnostics();
         registerShutdownHook();
         startParentExitWatcher(resolveParentPid(args));
@@ -50,50 +52,64 @@ public class VoltLauncher {
         restServer = new RestServer( 7070, VoltLauncher::minimizeMainWindow, VoltLauncher::toggleMaximizeMainWindow, VoltLauncher::requestCloseMainWindow, VoltLauncher::openAuthPopup );
         restServer.start();
 
-        String[] cefArgs = withDefaultCefArgs(args);
+        System.out.println("[Launcher] Loading window wird angefordert...");
+        SwingUtilities.invokeLater(VoltLauncher::showLoadingMainWindow);
 
-        Thread.ofVirtual().start(() -> {
-            try {
-                CefApp app = JcefBootstrap.initialize(cefArgs);
-                cefApp = app;
-                SwingUtilities.invokeLater(() -> buildMainWindow(app));
-            } catch (Exception e) {
-                System.err.println("[JCEF] Initialisierung fehlgeschlagen: " + e.getMessage());
-                e.printStackTrace();
-                shutdown();
-            }
-        });
+        try {
+            String[] cefArgs = withDefaultCefArgs(args);
+            System.out.println("[JCEF] Initialisierung startet...");
+            CefApp app = JcefBootstrap.initialize(cefArgs);
+            System.out.println("[JCEF] Initialisierung abgeschlossen.");
+            cefApp = app;
+
+            SwingUtilities.invokeLater(() -> createAndShowMainWindow(app));
+        } catch (Exception e) {
+            System.err.println("[JCEF] Initialisierung fehlgeschlagen: " + e.getMessage());
+            logException("[JCEF] Initialisierung fehlgeschlagen", e);
+            shutdown();
+        }
     }
 
-    private static void buildMainWindow(CefApp app) {
+    private static void createAndShowMainWindow(CefApp app) {
+        try {
+            CefClient client = app.createClient();
+            client.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
+                @Override
+                public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
+                CefContextMenuParams params, CefMenuModel model) {
+                    model.clear();
+                }
+            });
+
+            System.out.println("[JCEF] Erzeuge Browser...");
+            CefBrowser browser = client.createBrowser("http://localhost:7070/", WINDOWLESS_RENDERING, false);
+            System.out.println("[JCEF] Browser erzeugt.");
+
+            SwingUtilities.invokeLater(() -> buildMainWindow(browser));
+        } catch (Exception e) {
+            System.err.println("[JCEF] Browser-Aufbau fehlgeschlagen: " + e.getMessage());
+            logException("[JCEF] Browser-Aufbau fehlgeschlagen", e);
+            shutdown();
+        }
+    }
+
+    private static void buildMainWindow(CefBrowser browser) {
+        JFrame loadingFrame = mainFrame;
         JFrame frame = new JFrame("TheLauncherProject");
         mainFrame = frame;
+
+        System.out.println("[Launcher] Baue Hauptfenster auf...");
         frame.setSize(1280, 720);
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.setUndecorated(true);
         frame.getContentPane().setBackground(APP_BG);
 
-        CefClient client = app.createClient();
-
-        client.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
-            @Override
-            public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
-            CefContextMenuParams params, CefMenuModel model) {
-                model.clear();
-            }
-        });
-
-        CefBrowser browser = client.createBrowser("http://localhost:7070/", WINDOWLESS_RENDERING, false);
         mainBrowser = browser;
         Component browserUI = browser.getUIComponent();
+        Container browserContainer = createBrowserContainer(browser);
 
-        makeDraggable(frame, browserUI, 50);
-
-        if (browserUI instanceof JComponent jc) {
-            jc.setBackground(APP_BG);
-            jc.setOpaque(true);
-        }
+        makeDraggable(frame, browserUI);
 
         browserUI.setFocusable(true);
         browserUI.addFocusListener(new FocusAdapter() {
@@ -143,14 +159,17 @@ public class VoltLauncher {
                 if (debounce != null && debounce.isRunning()) {
                     debounce.restart();
                 } else {
-                    debounce = new Timer(80, ev -> browser.executeJavaScript( "window.dispatchEvent(new Event('resize'));", browser.getURL(), 0));
+                    debounce = new Timer(80, ignored -> browser.executeJavaScript("window.dispatchEvent(new Event('resize'));", browser.getURL(), 0));
                     debounce.setRepeats(false);
                     debounce.start();
                 }
             }
         });
 
-        frame.getContentPane().add(browserUI, BorderLayout.CENTER);
+        frame.setContentPane(browserContainer);
+        frame.revalidate();
+        frame.repaint();
+        System.out.println("[Launcher] Hauptfenster-Inhalt gesetzt.");
 
         frame.addWindowListener(new WindowAdapter() {
             @Override
@@ -172,15 +191,75 @@ public class VoltLauncher {
         });
 
         frame.setVisible(true);
+        frame.toFront();
+        frame.requestFocus();
         syncBrowserFocus(browser, browserUI, true);
+
+        if (loadingFrame != null && loadingFrame != frame && loadingFrame.isDisplayable()) {
+            loadingFrame.dispose();
+        }
+
+        System.out.println("[Launcher] Main window visible.");
+    }
+
+    private static Container createBrowserContainer(CefBrowser browser) {
+        Component browserUI = browser.getUIComponent();
+
+        if (WINDOWLESS_RENDERING) {
+            BrowserPanel browserPanel = new BrowserPanel();
+            browserPanel.attachTo(browser);
+            return browserPanel;
+        }
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBackground(APP_BG);
+        panel.setOpaque(true);
+
+        panel.add(browserUI, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private static void showLoadingMainWindow() {
+        if (mainFrame != null && mainFrame.isDisplayable()) {
+            return;
+        }
+
+        JFrame frame = new JFrame("TheLauncherProject");
+        mainFrame = frame;
+        frame.setSize(1280, 720);
+        frame.setLocationRelativeTo(null);
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        frame.setUndecorated(true);
+        frame.getContentPane().setBackground(APP_BG);
+
+        JPanel loading = new JPanel(new GridBagLayout());
+        loading.setBackground(APP_BG);
+        JLabel label = new JLabel("VoltLauncher lädt…");
+        label.setForeground(Color.WHITE);
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 18f));
+        loading.add(label);
+
+        frame.setContentPane(loading);
+
+        frame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                shutdown();
+            }
+        });
+
+        frame.setVisible(true);
+        frame.toFront();
+        frame.requestFocus();
+        System.out.println("[Launcher] Loading window visible.");
     }
 
     private static void openAuthPopup(String authUrl) {
-        SwingUtilities.invokeLater(() -> {
+        Thread.ofPlatform().name("jcef-auth").start(() -> {
             CefApp app = cefApp;
             if (app == null) return;
 
-            JFrame[] popupRef = new JFrame[1];
+            AtomicReference<JFrame> popupRef = new AtomicReference<>();
             CefClient popupClient = app.createClient();
 
             popupClient.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
@@ -200,7 +279,7 @@ public class VoltLauncher {
                         handleRedirectUrl(url);
                         SwingUtilities.invokeLater(() -> {
                             browser.close(true);
-                            JFrame popup = popupRef[0];
+                            JFrame popup = popupRef.getAndSet(null);
                             if (popup != null) { popup.dispose(); }
                         });
                         return true;
@@ -210,33 +289,37 @@ public class VoltLauncher {
             });
 
             CefBrowser popupBrowser = popupClient.createBrowser(authUrl, WINDOWLESS_RENDERING, false);
-            popupBrowser.setWindowlessFrameRate(60);
+            if (WINDOWLESS_RENDERING) {
+                popupBrowser.setWindowlessFrameRate(60);
+            }
 
-            JFrame popup = new JFrame("Bei Minecraft anmelden");
-            popupRef[0] = popup;
-            popup.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-            popup.setLayout(new BorderLayout());
-            popup.setSize(520, 760);
-            popup.setLocationRelativeTo(mainFrame);
+            SwingUtilities.invokeLater(() -> {
+                JFrame popup = new JFrame("Bei Minecraft anmelden");
+                popupRef.set(popup);
+                popup.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+                popup.setLayout(new BorderLayout());
+                popup.setSize(520, 760);
+                popup.setLocationRelativeTo(mainFrame);
 
-            Component popupUI = popupBrowser.getUIComponent();
-            popupUI.setFocusable(true);
-            popupUI.addMouseWheelListener(e -> {
-                e.consume();
-                int pixels = (int) (e.getPreciseWheelRotation() * 80);
-                popupBrowser.executeJavaScript( "window.scrollBy(0, " + pixels + ");", popupBrowser.getURL(), 0);
+                Component popupUI = popupBrowser.getUIComponent();
+                popupUI.setFocusable(true);
+                popupUI.addMouseWheelListener(e -> {
+                    e.consume();
+                    int pixels = (int) (e.getPreciseWheelRotation() * 80);
+                    popupBrowser.executeJavaScript( "window.scrollBy(0, " + pixels + ");", popupBrowser.getURL(), 0);
+                });
+
+                popup.setContentPane(createBrowserContainer(popupBrowser));
+                popup.addWindowListener(new WindowAdapter() {
+                    @Override
+                    public void windowClosing(WindowEvent e) {
+                        popupBrowser.close(true);
+                        popup.dispose();
+                    }
+                });
+
+                popup.setVisible(true);
             });
-
-            popup.add(popupUI, BorderLayout.CENTER);
-            popup.addWindowListener(new WindowAdapter() {
-                @Override
-                public void windowClosing(WindowEvent e) {
-                    popupBrowser.close(true);
-                    popup.dispose();
-                }
-            });
-
-            popup.setVisible(true);
         });
     }
 
@@ -271,7 +354,8 @@ public class VoltLauncher {
         }
     }
 
-    private static void makeDraggable(JFrame frame, Component dragComponent, int dragHeight) {
+    private static void makeDraggable(JFrame frame, Component dragComponent) {
+        final int dragHeight = 50;
         final int[] mouseX = new int[1];
         final int[] mouseY = new int[1];
         final boolean[] dragging = new boolean[1];
@@ -419,9 +503,22 @@ public class VoltLauncher {
         return extended;
     }
 
+    private static boolean isMac() {
+        return System.getProperty("os.name", "").toLowerCase().contains("mac");
+    }
+
     private static boolean isLinux() {
         return System.getProperty("os.name", "").toLowerCase().contains("linux");
     }
+
+    private static boolean resolveWindowlessRendering() {
+        String configured = System.getProperty("volt.jcef.windowless");
+        if (configured != null) {
+            return Boolean.parseBoolean(configured);
+        }
+        return !isMac();
+    }
+
 
     private static void installDiagnostics() {
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
@@ -464,6 +561,14 @@ public class VoltLauncher {
             } catch (IOException io) {
                 System.err.println("[Launcher] Konnte Uncaught-Logdatei nicht schreiben: " + io.getMessage());
             }
+        }
+    }
+
+    private static void logException(String prefix, Throwable throwable) {
+        StringWriter sw = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(sw));
+        synchronized (DIAG_LOCK) {
+            System.err.println(prefix + "\n" + sw);
         }
     }
 }

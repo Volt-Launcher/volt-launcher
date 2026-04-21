@@ -13,7 +13,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.release>25</maven.compiler.release>
+        <maven.compiler.release>21</maven.compiler.release>
         <org.json.version>20250517</org.json.version>
     </properties>
 
@@ -106,4 +106,34 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>mac</id>
+            <activation>
+                <os><family>mac</family></os>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.3.0</version>
+                        <configuration>
+                            <executable>${project.basedir}/run-java21-macos.sh</executable>
+                            <arguments>
+                                <argument>-XstartOnFirstThread</argument>
+                                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                                <argument>-Djava.awt.headless=false</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>app.voltlauncher.voltlauncher.VoltLauncher</argument>
+                            </arguments>
+                            <cleanupDaemonThreads>false</cleanupDaemonThreads>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
