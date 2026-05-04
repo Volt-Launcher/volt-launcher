@@ -2,6 +2,8 @@ const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const process = require('process');
 
+app.setName('VoltLauncher');
+
 let mainWindow;
 
 function createWindow() {

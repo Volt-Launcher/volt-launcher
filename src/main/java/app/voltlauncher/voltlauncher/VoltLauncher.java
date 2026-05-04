@@ -1,20 +1,20 @@
 package app.voltlauncher.voltlauncher;
 
-import app.voltlauncher.voltlauncher.auth.OAuthClient;
 import app.voltlauncher.voltlauncher.rest.RestServer;
 
-import java.awt.Desktop;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URI;
-import java.net.URLDecoder;
+import java.net.URISyntaxException;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VoltLauncher {
@@ -39,51 +39,45 @@ public class VoltLauncher {
 
     private static void startElectronProcess() {
         try {
-            // Find bundled electron binary from resources if packaged, or use npm run if dev
             String osDir = "";
             String executable = "";
             if (isMac()) {
-                // Determine arch logic as needed, assuming arm64 or x64.
-                // In electron-builder "dir" output, mac is mac-arm64 or mac
                 osDir = isArm() ? "mac-arm64" : "mac";
-                executable = "VoltLauncherUI.app/Contents/MacOS/VoltLauncherUI";
+                executable = "VoltLauncher.app/Contents/MacOS/VoltLauncher";
             } else if (isLinux()) {
                 osDir = "linux-unpacked";
-                executable = "voltlauncherui";
+                executable = "voltlauncher";
             } else {
                 osDir = "win-unpacked";
-                executable = "VoltLauncherUI.exe";
+                executable = "VoltLauncher.exe";
             }
 
-            Path devUiDir = Path.of(System.getProperty("user.dir"), "ui");
-            ProcessBuilder pb;
-            if (Files.exists(devUiDir)) {
-                // Development mode
-                if (isMac() || isLinux()) {
-                    pb = new ProcessBuilder("npm", "run", "electron:start");
-                } else {
-                    pb = new ProcessBuilder("cmd.exe", "/c", "npm run electron:start");
-                }
-                pb.directory(devUiDir.toFile());
-            } else {
-                // Prod mode (running from Jar) - extracting or running from resources
-                // Typically you need to extract the electron-bin directory from the JAR to a temp location first
-                // Let's assume we extract it to AppPaths.baseDirectory().resolve("electron")
-                Path electronBaseDir = app.voltlauncher.voltlauncher.AppPaths.baseDirectory().resolve("electron");
+            Path electronBaseDir = app.voltlauncher.voltlauncher.AppPaths.baseDirectory().resolve("electron");
+            Path binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
 
-                // For simplicity, assuming the deployment mechanism copies it there.
-                // Alternatively, run the specific binary:
-                Path binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
+            if (!Files.exists(binaryPath)) {
+                System.out.println("[Launcher] Electron Binary nicht gefunden unter " + binaryPath + ", entpacke Ressourcen...");
+                extractElectronResources(electronBaseDir, osDir);
 
                 if (!Files.exists(binaryPath)) {
-                    System.err.println("[Launcher] Electron Binary not found at " + binaryPath);
-                    // attempt to run system electron if fallback needed or try to extract from Resources here
+                    // Try lower-cased defaults just in case
+                    if (isMac()) {
+                        executable = "voltlauncher-ui.app/Contents/MacOS/voltlauncher-ui";
+                    } else if (isLinux()) {
+                        executable = "voltlauncher-ui";
+                    } else {
+                        executable = "voltlauncher-ui.exe";
+                    }
+                    binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
                 }
-
-                pb = new ProcessBuilder(binaryPath.toString());
-                pb.directory(electronBaseDir.toFile());
             }
 
+            if (!Files.exists(binaryPath)) {
+                System.err.println("[Launcher] FEHLER: Electron Binary weiterhin nicht gefunden! Bitte Build prüfen. Erwarte: " + binaryPath);
+            }
+
+            ProcessBuilder pb = new ProcessBuilder(binaryPath.toString());
+            pb.directory(electronBaseDir.toFile());
             pb.inheritIO();
 
             electronProcess = pb.start();
@@ -91,10 +85,41 @@ public class VoltLauncher {
                 System.out.println("[Launcher] Electron Prozess wurde beendet. Schließe Backend...");
                 shutdown();
             });
-        } catch (IOException e) {
+        } catch (Exception e) {
             System.err.println("[Launcher] Konnte Electron Prozess nicht starten: " + e.getMessage());
             logException("[Launcher] Fehler beim Starten von Electron", e);
             shutdown();
+        }
+    }
+
+    private static void extractElectronResources(Path targetDir, String osDir) throws IOException, URISyntaxException {
+        java.net.URL resource = VoltLauncher.class.getResource("/electron-bin/" + osDir + ".tar.gz");
+        if (resource == null) {
+            System.err.println("[Launcher] /electron-bin/" + osDir + ".tar.gz nicht in den Ressourcen gefunden! Wurde das UI korrekt gebaut?");
+            return;
+        }
+
+        Files.createDirectories(targetDir);
+        Path tarPath = targetDir.resolve(osDir + ".tar.gz");
+
+        try (java.io.InputStream in = resource.openStream()) {
+            Files.copy(in, tarPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        Path osDirPath = targetDir.resolve(osDir);
+        Files.createDirectories(osDirPath);
+
+        System.out.println("[Launcher] Entpacke " + tarPath + " nach " + targetDir + " ...");
+        try {
+            ProcessBuilder pb = new ProcessBuilder("tar", "-xzf", tarPath.getFileName().toString());
+            pb.directory(targetDir.toFile());
+            pb.inheritIO();
+            Process p = pb.start();
+            p.waitFor();
+            Files.deleteIfExists(tarPath);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Entpacken unterbrochen", e);
         }
     }
 

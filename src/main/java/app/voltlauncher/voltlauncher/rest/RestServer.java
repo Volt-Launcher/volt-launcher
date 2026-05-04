@@ -81,19 +81,8 @@ public class RestServer {
 
     public void start() {
         app = routeManager.createJavalin(config -> {
-            config.staticFiles.add(staticFiles -> {
-                staticFiles.hostedPath = "/";
-                staticFiles.directory = "/dist";
-                staticFiles.location = Location.CLASSPATH;
-            });
             config.bundledPlugins.enableCors(cors -> cors.addRule(rule -> rule.anyHost()));
-            config.routes.beforeMatched(ctx -> {
-                String path = ctx.path();
-                if (!path.startsWith("/api") && !path.contains(".") && !"/".equals(path)
-                && !path.startsWith("/assets")) {
-                    ctx.redirect("/");
-                }
-            });
+            // We no longer serve the UI from Javalin since Electron loads it directly.
         });
 
         app.start(port);
