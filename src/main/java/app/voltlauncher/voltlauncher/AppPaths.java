@@ -56,13 +56,5 @@ public final class AppPaths {
     public static Path runtimeDownloadsDirectory() {
         return runtimesDirectory().resolve("downloads");
     }
-
-    public static Path jcefInstallDirectory() {
-        return baseDirectory().resolve("jcef");
-    }
-
-    public static Path jcefCacheDirectory() {
-        return baseDirectory().resolve("jcef-cache");
-    }
 }
 

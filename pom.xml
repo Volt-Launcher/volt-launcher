@@ -24,11 +24,6 @@
             <version>${org.json.version}</version>
         </dependency>
         <dependency>
-            <groupId>me.friwi</groupId>
-            <artifactId>jcefmaven</artifactId>
-            <version>143.0.14</version>
-        </dependency>
-        <dependency>
             <groupId>io.javalin</groupId>
             <artifactId>javalin</artifactId>
             <version>7.1.0</version>
@@ -106,34 +101,4 @@
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>mac</id>
-            <activation>
-                <os><family>mac</family></os>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.codehaus.mojo</groupId>
-                        <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.3.0</version>
-                        <configuration>
-                            <executable>${project.basedir}/run-java21-macos.sh</executable>
-                            <arguments>
-                                <argument>-XstartOnFirstThread</argument>
-                                <argument>--enable-native-access=ALL-UNNAMED</argument>
-                                <argument>-Djava.awt.headless=false</argument>
-                                <argument>-classpath</argument>
-                                <classpath/>
-                                <argument>app.voltlauncher.voltlauncher.VoltLauncher</argument>
-                            </arguments>
-                            <cleanupDaemonThreads>false</cleanupDaemonThreads>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

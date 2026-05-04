@@ -22,7 +22,6 @@ export default defineConfig({
     port: 3020,
   },
   build: {
-    outDir: "../src/main/resources/dist",
     emptyOutDir: true,
     rolldownOptions: {
       output: {

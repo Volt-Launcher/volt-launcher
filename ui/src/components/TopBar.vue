@@ -55,16 +55,14 @@ const navItems = [
   { id: 'discover', label: 'DISCOVER', icon: 'lucide:search' },
   { id: 'settings', label: 'SETTINGS', icon: 'lucide:settings' },
 ] as const;
+
+const isMac = navigator.userAgent.toLowerCase().includes('mac');
 </script>
 <template>
-  <!--<div class="mr-2 hidden gap-[5px] md:flex">
-    <div class="h-3 w-3 rounded-full bg-[#ff5f57]"></div>
-    <div class="h-3 w-3 rounded-full bg-[#febc2e]"></div>
-    <div class="h-3 w-3 rounded-full bg-[#28c840]"></div>
-  </div>-->
-  
-  <BaseHeader>
-    <nav class="flex w-full gap-2">
+  <BaseHeader class="flex items-center w-full px-4 pt-1" :class="{ 'pt-8! pb-2!': isMac }" style="-webkit-app-region: drag">
+
+    <!-- Navigation -->
+    <nav class="flex gap-2" style="-webkit-app-region: no-drag">
       <NavButton
         v-for="item in navItems"
         :key="item.id"
@@ -73,7 +71,7 @@ const navItems = [
         @select="activeTab = $event"
       />
     </nav>
-    <div class="ml-auto flex items-center gap-2">
+    <div class="ml-auto flex items-center gap-2" style="-webkit-app-region: no-drag">
       <div ref="notifMenuRef" class="relative">
         <button
           type="button"
@@ -201,8 +199,8 @@ const navItems = [
         </Transition>
       </div>
 
-      <!-- Window controls -->
-      <div class="ml-1 flex items-center gap-[3px]">
+      <!-- Windows controls (Right aligned) -->
+      <div v-if="!isMac" class="ml-1 flex items-center gap-[3px]" style="-webkit-app-region: no-drag">
         <button type="button" class="group cursor-pointer flex size-[30px] items-center justify-center rounded-[6px] transition-colors duration-150 hover:bg-white/10" title="Minimize" @click="handleWindowMinimize">
           <Icon icon="lucide:minus" class="size-[13px] text-white/40 transition-colors group-hover:text-white/80" />
         </button>
