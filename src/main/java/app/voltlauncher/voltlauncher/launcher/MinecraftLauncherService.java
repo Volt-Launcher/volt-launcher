@@ -50,7 +50,7 @@ public final class MinecraftLauncherService {
         this.instanceManager = new InstanceManager(new LauncherInstanceStore(), versionResolver);
         this.commandBuilder = new LaunchCommandBuilder(launcherClientId);
         this.javaResolver = new JavaRuntimeResolver();
-        this.processRegistry = new ProcessRegistry((key, _) -> {
+        this.processRegistry = new ProcessRegistry((key, unused) -> {
             RunningInstance ended = runningMeta.remove(key);
             LaunchState previous = launchStates.get(key);
             if (previous == null || previous.result() == null || previous.phase() != LaunchPhase.RUNNING) {

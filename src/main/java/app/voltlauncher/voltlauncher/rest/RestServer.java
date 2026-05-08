@@ -9,6 +9,7 @@ import app.voltlauncher.voltlauncher.rest.routes.impl.*;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetAuthStatus;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetLogin;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetSession;
+import app.voltlauncher.voltlauncher.rest.routes.impl.auth.PostAuthCallback;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.PostLogout;
 import app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowClose;
 import app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowMaximize;
@@ -57,6 +58,7 @@ public class RestServer {
         this.routeManager.register(new GetInstanceLaunchStatus(this.minecraftLauncher));
         this.routeManager.register(new PostInstanceStop(this.minecraftLauncher));
         this.routeManager.register(new GetLogin(this.msAuth, this.openUrlAction));
+        this.routeManager.register(new PostAuthCallback(this.msAuth));
         this.routeManager.register(new PostLogout(this.msAuth));
         this.routeManager.register(new GetAuthStatus(this.msAuth));
         this.routeManager.register(new PostWindowMinimize(this.minimizeWindowAction));
@@ -77,36 +79,13 @@ public class RestServer {
         e.printStackTrace(System.err);
     }
 
-    public void submitAuthCode(String code, String state) {
-        Thread.ofVirtual().start(() -> {
-            try {
-                msAuth.handleAuthCode(code, state);
-            } catch (Exception e) {
-                System.err.println("[RestServer] Auth code exchange failed: " + e.getMessage());
-            }
-        });
-    }
-
-    public void failAuth(String state, String message) {
-        try { msAuth.failAuthFlow(state, message); } catch (Exception ignored) {}
-    }
-
     public void start() {
         app = routeManager.createJavalin(config -> {
-            config.staticFiles.add(staticFiles -> {
-                staticFiles.hostedPath = "/";
-                staticFiles.directory = "/dist";
-                staticFiles.location = Location.CLASSPATH;
-            });
             config.bundledPlugins.enableCors(cors -> cors.addRule(rule -> rule.anyHost()));
-            config.routes.beforeMatched(ctx -> {
-                String path = ctx.path();
-                if (!path.startsWith("/api") && !path.contains(".") && !"/".equals(path)
-                && !path.startsWith("/assets")) {
-                    ctx.redirect("/");
-                }
-            });
-        }).start(port);
+            // We no longer serve the UI from Javalin since Electron loads it directly.
+        });
+
+        app.start(port);
 
         System.out.println("Javalin server started on http://localhost:" + port);
     }

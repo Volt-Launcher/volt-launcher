@@ -77,7 +77,7 @@ public final class JavaRuntimeResolver {
                 return;
             }
             runtimes.add(new JavaRuntime(detectMajorVersion(normalized), normalized, source));
-        } catch (IOException _) {}
+        } catch (IOException unused) {}
     }
 
     private Path resolveJavaExecutable(Path javaHome) {
@@ -102,7 +102,7 @@ public final class JavaRuntimeResolver {
                 }
             }
             process.waitFor();
-        } catch (Exception _) {}
+        } catch (Exception unused) {}
         return result;
     }
 
@@ -119,7 +119,7 @@ public final class JavaRuntimeResolver {
             .map(p -> p.resolve("bin").resolve(execName))
             .filter(Files::exists)
             .forEach(result::add);
-        } catch (IOException _) {}
+        } catch (IOException unused) {}
         return result;
     }
 
@@ -156,7 +156,7 @@ public final class JavaRuntimeResolver {
                     target.add(exec);
                 }
             });
-        } catch (IOException _) {}
+        } catch (IOException unused) {}
     }
 
     private int detectMajorVersion(Path javaExecutable) throws Exception {

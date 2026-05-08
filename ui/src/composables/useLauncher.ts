@@ -125,8 +125,11 @@ export const formatReleaseTime = (rt: string) => { if (!rt) return "Unbekannt"; 
 export const handleImgError = (event: Event) => { const img = event.target as HTMLImageElement; const fb = img.dataset.fallbackSrc; if (fb && img.src !== fb) img.src = fb; };
 
 // ── API helper ──────────────────────────────────────────────────────────────
+const APP_API_BASE = "http://localhost:7070";
+
 const apiFetch = async <T>(url: string, init?: RequestInit): Promise<T> => {
-    const r = await fetch(url, init);
+    const fullUrl = url.startsWith("/") ? `${APP_API_BASE}${url}` : url;
+    const r = await fetch(fullUrl, init);
     return r.json() as Promise<T>;
 };
 
@@ -161,12 +164,16 @@ const handleLogin = async () => {
         isAuthenticating.value = true;
         error.value = null;
         const d = await apiFetch<{ success: boolean; state?: string; url?: string; error?: string }>("/api/auth/login");
-        if (!d.success || !d.state) {
+        if (!d.success || !d.state || !d.url) {
             error.value = d.error ?? "Authentifizierung fehlgeschlagen";
             isAuthenticating.value = false;
             return;
         }
         authState = d.state;
+
+        // Open OAuth url in a new popup
+        window.open(d.url, "MicrosoftAuth", "width=520,height=760");
+
         authPollInterval = window.setInterval(() => { void pollAuthStatus(); }, 1500);
     } catch (e) {
         error.value = e instanceof Error ? e.message : "Unbekannter Fehler";
@@ -176,7 +183,7 @@ const handleLogin = async () => {
 };
 
 const handleLogout = async () => {
-    try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* ignore */ }
+    try { await fetch(`${APP_API_BASE}/api/auth/logout`, { method: "POST" }); } catch { /* ignore */ }
     authData.value = null;
     error.value = null;
     launcherMessage.value = null;

@@ -172,7 +172,7 @@ public final class TemurinJdkDownloader {
         }
         try (var walk = Files.walk(binDir, 1)) {
             walk.filter(Files::isRegularFile).forEach(this::applyExecPermission);
-        } catch (IOException _) {}
+        } catch (IOException unused) {}
     }
 
     private void applyExecPermission(Path path) {
@@ -182,7 +182,7 @@ public final class TemurinJdkDownloader {
             perms.add(PosixFilePermission.GROUP_EXECUTE);
             perms.add(PosixFilePermission.OTHERS_EXECUTE);
             Files.setPosixFilePermissions(path, perms);
-        } catch (UnsupportedOperationException | IOException _) {}
+        } catch (UnsupportedOperationException | IOException unused) {}
     }
 
     private void recreateDirectory(Path dir) throws IOException {
@@ -198,9 +198,9 @@ public final class TemurinJdkDownloader {
             walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);
-                } catch (IOException _) {}
+                } catch (IOException unused) {}
             });
-        } catch (Exception _) {}
+        } catch (Exception unused) {}
     }
 
     private String detectOs() {
