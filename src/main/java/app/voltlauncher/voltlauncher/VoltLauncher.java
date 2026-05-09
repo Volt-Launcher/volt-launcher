@@ -2,19 +2,23 @@ package app.voltlauncher.voltlauncher;
 
 import app.voltlauncher.voltlauncher.rest.RestServer;
 
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+
+import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VoltLauncher {
@@ -92,35 +96,75 @@ public class VoltLauncher {
         }
     }
 
-    private static void extractElectronResources(Path targetDir, String osDir) throws IOException, URISyntaxException {
+    private static void extractElectronResources(Path targetDir, String osDir) throws IOException {
         java.net.URL resource = VoltLauncher.class.getResource("/electron-bin/" + osDir + ".tar.gz");
         if (resource == null) {
-            System.err.println("[Launcher] /electron-bin/" + osDir + ".tar.gz nicht in den Ressourcen gefunden! Wurde das UI korrekt gebaut?");
+            System.err.println("[Launcher] /electron-bin/" + osDir + ".tar.gz not found in resources! Was the UI built correctly?");
             return;
         }
 
         Files.createDirectories(targetDir);
         Path tarPath = targetDir.resolve(osDir + ".tar.gz");
 
-        try (java.io.InputStream in = resource.openStream()) {
+        try (InputStream in = resource.openStream()) {
             Files.copy(in, tarPath, StandardCopyOption.REPLACE_EXISTING);
         }
 
-        Path osDirPath = targetDir.resolve(osDir);
-        Files.createDirectories(osDirPath);
+        System.out.println("[Launcher] Extracting " + tarPath + " to " + targetDir + " ...");
+        extractTarGz(tarPath, targetDir);
+        Files.deleteIfExists(tarPath);
+    }
 
-        System.out.println("[Launcher] Entpacke " + tarPath + " nach " + targetDir + " ...");
-        try {
-            ProcessBuilder pb = new ProcessBuilder("tar", "-xzf", tarPath.getFileName().toString());
-            pb.directory(targetDir.toFile());
-            pb.inheritIO();
-            Process p = pb.start();
-            p.waitFor();
-            Files.deleteIfExists(tarPath);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Entpacken unterbrochen", e);
+    private static void extractTarGz(Path tarGzPath, Path targetDir) throws IOException {
+        boolean isPosix = !System.getProperty("os.name", "").toLowerCase().contains("win");
+
+        try (InputStream fis = Files.newInputStream(tarGzPath);
+             BufferedInputStream bis = new BufferedInputStream(fis);
+             GzipCompressorInputStream gzis = new GzipCompressorInputStream(bis);
+             TarArchiveInputStream tais = new TarArchiveInputStream(gzis)) {
+
+            TarArchiveEntry entry;
+            while ((entry = tais.getNextEntry()) != null) {
+                Path entryPath = targetDir.resolve(entry.getName()).normalize();
+                if (!entryPath.startsWith(targetDir.normalize())) {
+                    throw new IOException("Tar entry outside target directory: " + entry.getName());
+                }
+
+                if (entry.isDirectory()) {
+                    Files.createDirectories(entryPath);
+                } else if (entry.isSymbolicLink()) {
+                    Files.createDirectories(entryPath.getParent());
+                    Files.deleteIfExists(entryPath);
+                    Files.createSymbolicLink(entryPath, Path.of(entry.getLinkName()));
+                } else {
+                    Files.createDirectories(entryPath.getParent());
+                    Files.copy(tais, entryPath, StandardCopyOption.REPLACE_EXISTING);
+
+                    if (isPosix) {
+                        int mode = entry.getMode();
+                        if ((mode & 0111) != 0) {
+                            Set<PosixFilePermission> perms = modeToPosixPermissions(mode);
+                            try { Files.setPosixFilePermissions(entryPath, perms); }
+                            catch (UnsupportedOperationException ignored) {}
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private static Set<PosixFilePermission> modeToPosixPermissions(int mode) {
+        Set<PosixFilePermission> perms = EnumSet.noneOf(PosixFilePermission.class);
+        if ((mode & 0400) != 0) perms.add(PosixFilePermission.OWNER_READ);
+        if ((mode & 0200) != 0) perms.add(PosixFilePermission.OWNER_WRITE);
+        if ((mode & 0100) != 0) perms.add(PosixFilePermission.OWNER_EXECUTE);
+        if ((mode & 0040) != 0) perms.add(PosixFilePermission.GROUP_READ);
+        if ((mode & 0020) != 0) perms.add(PosixFilePermission.GROUP_WRITE);
+        if ((mode & 0010) != 0) perms.add(PosixFilePermission.GROUP_EXECUTE);
+        if ((mode & 0004) != 0) perms.add(PosixFilePermission.OTHERS_READ);
+        if ((mode & 0002) != 0) perms.add(PosixFilePermission.OTHERS_WRITE);
+        if ((mode & 0001) != 0) perms.add(PosixFilePermission.OTHERS_EXECUTE);
+        return perms;
     }
 
     private static void minimizeMainWindow() {
