@@ -4,7 +4,7 @@ import java.nio.file.Path;
 
 public final class AppPaths {
 
-    private static final String APP_DIRECTORY = ".thelauncherproject";
+    private static final String APP_DIRECTORY = ".voltlauncher";
 
     private AppPaths() {
     }
@@ -23,10 +23,6 @@ public final class AppPaths {
 
     public static Path logsDirectory() {
         return baseDirectory().resolve("logs");
-    }
-
-    public static Path minecraftDirectory() {
-        return baseDirectory().resolve("minecraft");
     }
 
     public static Path masterKeyPath() {
@@ -59,10 +55,6 @@ public final class AppPaths {
 
     public static Path runtimeDownloadsDirectory() {
         return runtimesDirectory().resolve("downloads");
-    }
-
-    public static Path jcefInstallDirectory() {
-        return baseDirectory().resolve("jcef");
     }
 }
 

@@ -33,7 +33,7 @@ public final class JsonUtil {
         Files.writeString(path, json.toString(2), StandardCharsets.UTF_8);
     }
 
-    public static Optional<String> getString(JSONObject root, String dotPath) {
+    public static Optional < String> getString(JSONObject root, String dotPath) {
         JSONObject node = walkPath(root, dotPath);
         if (node == null) {
             return Optional.empty();
@@ -45,7 +45,7 @@ public final class JsonUtil {
         return Optional.of(node.getString(key));
     }
 
-    public static Optional<JSONObject> getObject(JSONObject root, String dotPath) {
+    public static Optional < JSONObject> getObject(JSONObject root, String dotPath) {
         JSONObject node = walkPath(root, dotPath);
         if (node == null) {
             return Optional.empty();
@@ -53,7 +53,7 @@ public final class JsonUtil {
         return Optional.ofNullable(node.optJSONObject(lastKey(dotPath)));
     }
 
-    public static Optional<JSONArray> getArray(JSONObject root, String dotPath) {
+    public static Optional < JSONArray> getArray(JSONObject root, String dotPath) {
         JSONObject node = walkPath(root, dotPath);
         if (node == null) {
             return Optional.empty();
@@ -61,7 +61,7 @@ public final class JsonUtil {
         return Optional.ofNullable(node.optJSONArray(lastKey(dotPath)));
     }
 
-    public static Optional<Integer> getInt(JSONObject root, String dotPath) {
+    public static Optional < Integer> getInt(JSONObject root, String dotPath) {
         JSONObject node = walkPath(root, dotPath);
         if (node == null) {
             return Optional.empty();
@@ -75,17 +75,17 @@ public final class JsonUtil {
 
     public static String requireString(JSONObject root, String dotPath) {
         return getString(root, dotPath)
-                .orElseThrow(() -> new IllegalStateException("Missing required JSON field: " + dotPath));
+        .orElseThrow(() -> new IllegalStateException("Missing required JSON field: " + dotPath));
     }
 
     public static JSONObject requireObject(JSONObject root, String dotPath) {
         return getObject(root, dotPath)
-                .orElseThrow(() -> new IllegalStateException("Missing required JSON object: " + dotPath));
+        .orElseThrow(() -> new IllegalStateException("Missing required JSON object: " + dotPath));
     }
 
     public static JSONArray requireArray(JSONObject root, String dotPath) {
         return getArray(root, dotPath)
-                .orElseThrow(() -> new IllegalStateException("Missing required JSON array: " + dotPath));
+        .orElseThrow(() -> new IllegalStateException("Missing required JSON array: " + dotPath));
     }
 
     private static JSONObject walkPath(JSONObject root, String dotPath) {
@@ -108,3 +108,4 @@ public final class JsonUtil {
         return dotPath.substring(dot + 1);
     }
 }
+

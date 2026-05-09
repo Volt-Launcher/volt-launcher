@@ -5,41 +5,29 @@ import app.voltlauncher.voltlauncher.storage.EncryptedAccountStore;
 public final class SessionManager {
 
     private static final long REFRESH_SAFETY_WINDOW_MS = 5 * 60 * 1_000L;
-    private static final long MIN_USABLE_REMAINING_MS  = 60_000L;
+    private static final long MIN_USABLE_REMAINING_MS = 60_000L;
 
-    private final OAuthClient         oauth;
-    private final XboxAuthClient      xbox;
+    private final OAuthClient oauth;
+    private final XboxAuthClient xbox;
     private final MinecraftAuthClient minecraft;
     private final EncryptedAccountStore store;
 
     private volatile MinecraftAccountSession cachedSession;
 
-    public SessionManager(
-            OAuthClient oauth,
-            XboxAuthClient xbox,
-            MinecraftAuthClient minecraft,
-            EncryptedAccountStore store) {
-        this.oauth     = oauth;
-        this.xbox      = xbox;
+    public SessionManager( OAuthClient oauth, XboxAuthClient xbox, MinecraftAuthClient minecraft,
+    EncryptedAccountStore store) {
+        this.oauth = oauth;
+        this.xbox = xbox;
         this.minecraft = minecraft;
-        this.store     = store;
+        this.store = store;
     }
 
     public MinecraftAccountSession createSession(OAuthClient.TokenResponse microsoftTokens) throws Exception {
         XboxAuthClient.XboxSession xboxSession = xbox.authenticate(microsoftTokens.accessToken());
         MinecraftAuthClient.MinecraftTokenResponse mc = minecraft.login(xboxSession.xstsToken(), xboxSession.userHash());
-        MinecraftAuthClient.MinecraftProfile profile  = minecraft.fetchProfile(mc.accessToken());
+        MinecraftAuthClient.MinecraftProfile profile = minecraft.fetchProfile(mc.accessToken());
 
-        MinecraftAccountSession session = new MinecraftAccountSession(
-                profile.uuid(),
-                profile.username(),
-                mc.accessToken(),
-                mc.expiresAt(),
-                microsoftTokens.accessToken(),
-                microsoftTokens.accessTokenExpiresAt(),
-                microsoftTokens.refreshToken(),
-                xboxSession.userHash(),
-                xboxSession.xuid());
+        MinecraftAccountSession session = new MinecraftAccountSession( profile.uuid(), profile.username(), mc.accessToken(), mc.expiresAt(), microsoftTokens.accessToken(), microsoftTokens.accessTokenExpiresAt(), microsoftTokens.refreshToken(), xboxSession.userHash(), xboxSession.xuid());
 
         persist(session);
         return session;
@@ -102,8 +90,7 @@ public final class SessionManager {
 
     private boolean needsRefresh(MinecraftAccountSession session) {
         long now = System.currentTimeMillis();
-        return session.minecraftAccessTokenExpiresAt()  <= now + REFRESH_SAFETY_WINDOW_MS
-                || session.microsoftAccessTokenExpiresAt() <= now + REFRESH_SAFETY_WINDOW_MS;
+        return session.minecraftAccessTokenExpiresAt() <= now + REFRESH_SAFETY_WINDOW_MS || session.microsoftAccessTokenExpiresAt() <= now + REFRESH_SAFETY_WINDOW_MS;
     }
 
     private boolean isMinecraftTokenStillUsable(MinecraftAccountSession session) {

@@ -4,6 +4,7 @@ import { computed, ref, watch, type WatchStopHandle } from "vue";
 export interface AuthData { uuid: string; username: string; }
 export interface LauncherInstance { name: string; slug: string; versionId: string; versionType: string; createdAt: number; lastPlayedAt: number; javaMajorVersion: number; javaComponent: string; running: boolean; launchPhase?: string; pid?: number; startedAt?: number; javaExecutable?: string; runningJavaMajorVersion?: number; }
 export interface AvailableVersion { id: string; type: string; releaseTime: string; }
+export type PlatformId = "vanilla" | "fabric" | "forge" | "neoforge" | "quilt";
 export type MainTab = "home" | "profiles" | "skins" | "discover" | "settings";
 export interface JavaRuntime { version: number; path: string; }
 export type LaunchPhase = "idle" | "installing" | "launching" | "running" | "failed";
@@ -12,10 +13,13 @@ export interface LauncherNotification { id: number; type: "error" | "info"; mess
 // ── Reactive state ──────────────────────────────────────────────────────────
 const authData = ref<AuthData | null>(null);
 const instances = ref<LauncherInstance[]>([]);
-const availableVersions = ref<AvailableVersion[]>([]);
+const availableMinecraftVersions = ref<AvailableVersion[]>([]);
+const loaderVersions = ref<AvailableVersion[]>([]);
 const selectedInstanceName = ref("");
 const newInstanceName = ref("");
-const selectedVersionId = ref("");
+const selectedPlatformId = ref<PlatformId>("vanilla");
+const selectedMinecraftVersionId = ref("");
+const selectedLoaderVersionId = ref("");
 const includeSnapshots = ref(false);
 const includeBetas = ref(false);
 const includeAlphas = ref(false);
@@ -26,8 +30,17 @@ const launchMessage = ref<string | null>(null);
 const isCreatingInstance = ref(false);
 const isLoadingInstances = ref(false);
 const isLoadingVersions = ref(false);
+const isLoadingLoaderVersions = ref(false);
 const error = ref<string | null>(null);
 const launcherMessage = ref<string | null>(null);
+
+const platformOptions = ref<Array<{ value: PlatformId; label: string }>>([
+    { value: "vanilla", label: "Vanilla" },
+    { value: "fabric", label: "Fabric" },
+    { value: "forge", label: "Forge" },
+    { value: "neoforge", label: "NeoForge" },
+    { value: "quilt", label: "Quilt" },
+]);
 
 // ── Notifications ───────────────────────────────────────────────────────────
 const NOTIF_KEY = "launcher_notifications";
@@ -77,10 +90,19 @@ let authPollInterval: ReturnType<typeof window.setInterval> | null = null;
 let instancePollInterval: ReturnType<typeof window.setInterval> | null = null;
 let launchPollInterval: ReturnType<typeof window.setInterval> | null = null;
 let versionsUnwatch: WatchStopHandle | null = null;
+let platformUnwatch: WatchStopHandle | null = null;
+let minecraftVersionUnwatch: WatchStopHandle | null = null;
 
 // ── Computed ────────────────────────────────────────────────────────────────
 const selectedInstance = computed(() => instances.value.find((i) => i.name === selectedInstanceName.value) ?? null);
 const runningInstancesCount = computed(() => instances.value.filter((i) => i.running).length);
+const requiresLoaderSelection = computed(() => selectedPlatformId.value !== "vanilla");
+const availableVersions = computed(() =>
+    requiresLoaderSelection.value ? loaderVersions.value : availableMinecraftVersions.value,
+);
+const selectedVersionId = computed(() =>
+    requiresLoaderSelection.value ? selectedLoaderVersionId.value : selectedMinecraftVersionId.value,
+);
 const selectedVersion = computed(() => availableVersions.value.find((v) => v.id === selectedVersionId.value) ?? null);
 const playerName = computed(() => authData.value?.username ?? "");
 const playerSkinUrl = computed(() => `https://crafatar.com/renders/body/${encodeURIComponent(playerName.value || "MHF_Steve")}?overlay&scale=10`);
@@ -103,8 +125,11 @@ export const formatReleaseTime = (rt: string) => { if (!rt) return "Unbekannt"; 
 export const handleImgError = (event: Event) => { const img = event.target as HTMLImageElement; const fb = img.dataset.fallbackSrc; if (fb && img.src !== fb) img.src = fb; };
 
 // ── API helper ──────────────────────────────────────────────────────────────
+const APP_API_BASE = "http://localhost:7070";
+
 const apiFetch = async <T>(url: string, init?: RequestInit): Promise<T> => {
-    const r = await fetch(url, init);
+    const fullUrl = url.startsWith("/") ? `${APP_API_BASE}${url}` : url;
+    const r = await fetch(fullUrl, init);
     return r.json() as Promise<T>;
 };
 
@@ -139,12 +164,16 @@ const handleLogin = async () => {
         isAuthenticating.value = true;
         error.value = null;
         const d = await apiFetch<{ success: boolean; state?: string; url?: string; error?: string }>("/api/auth/login");
-        if (!d.success || !d.state) {
+        if (!d.success || !d.state || !d.url) {
             error.value = d.error ?? "Authentifizierung fehlgeschlagen";
             isAuthenticating.value = false;
             return;
         }
         authState = d.state;
+
+        // Open OAuth url in a new popup
+        window.open(d.url, "MicrosoftAuth", "width=520,height=760");
+
         authPollInterval = window.setInterval(() => { void pollAuthStatus(); }, 1500);
     } catch (e) {
         error.value = e instanceof Error ? e.message : "Unbekannter Fehler";
@@ -154,7 +183,7 @@ const handleLogin = async () => {
 };
 
 const handleLogout = async () => {
-    try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* ignore */ }
+    try { await fetch(`${APP_API_BASE}/api/auth/logout`, { method: "POST" }); } catch { /* ignore */ }
     authData.value = null;
     error.value = null;
     launcherMessage.value = null;
@@ -192,18 +221,49 @@ const loadVersions = async () => {
         const q = new URLSearchParams({ includeSnapshots: String(includeSnapshots.value), includeBetas: String(includeBetas.value), includeAlphas: String(includeAlphas.value) });
         const d = await apiFetch<{ success: boolean; versions?: AvailableVersion[]; error?: string }>(`/api/instances/versions?${q}`);
         if (!d.success) { error.value = d.error ?? "Versionen konnten nicht geladen werden"; return; }
-        availableVersions.value = d.versions ?? [];
-        if (!selectedVersionId.value || !availableVersions.value.some((v) => v.id === selectedVersionId.value))
-            selectedVersionId.value = availableVersions.value[0]?.id ?? "";
+        availableMinecraftVersions.value = d.versions ?? [];
+        if (!selectedMinecraftVersionId.value || !availableMinecraftVersions.value.some((v) => v.id === selectedMinecraftVersionId.value))
+            selectedMinecraftVersionId.value = availableMinecraftVersions.value[0]?.id ?? "";
     } catch (e) {
         error.value = e instanceof Error ? e.message : "Versionen konnten nicht geladen werden";
     } finally { isLoadingVersions.value = false; }
 };
 
+const loadLoaderVersions = async () => {
+    if (!requiresLoaderSelection.value) {
+        loaderVersions.value = [];
+        selectedLoaderVersionId.value = "";
+        return;
+    }
+    if (!selectedMinecraftVersionId.value) {
+        loaderVersions.value = [];
+        selectedLoaderVersionId.value = "";
+        return;
+    }
+    try {
+        isLoadingLoaderVersions.value = true;
+        const q = new URLSearchParams({
+            platformId: selectedPlatformId.value,
+            minecraftVersionId: selectedMinecraftVersionId.value,
+        });
+        const d = await apiFetch<{ success: boolean; versions?: AvailableVersion[]; error?: string }>(`/api/instances/loader-versions?${q}`);
+        if (!d.success) { error.value = d.error ?? "Loader-Versionen konnten nicht geladen werden"; return; }
+        loaderVersions.value = d.versions ?? [];
+        if (!selectedLoaderVersionId.value || !loaderVersions.value.some((v) => v.id === selectedLoaderVersionId.value)) {
+            selectedLoaderVersionId.value = loaderVersions.value[0]?.id ?? "";
+        }
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Loader-Versionen konnten nicht geladen werden";
+    } finally {
+        isLoadingLoaderVersions.value = false;
+    }
+};
+
 // ── Instance actions ──────────────────────────────────────────────────────────
 const handleCreateInstance = async () => {
     if (!newInstanceName.value.trim()) { error.value = "Bitte einen Profilnamen eingeben"; return; }
-    if (!selectedVersionId.value) { error.value = "Bitte eine Minecraft-Version wählen"; return; }
+    if (!selectedMinecraftVersionId.value) { error.value = "Bitte eine Minecraft-Version wählen"; return; }
+    if (requiresLoaderSelection.value && !selectedLoaderVersionId.value) { error.value = "Bitte eine Loader-Version wählen"; return; }
     try {
         isCreatingInstance.value = true;
         error.value = null;
@@ -352,6 +412,20 @@ function init() {
     void loadVersions();
     instancePollInterval = window.setInterval(() => { void loadInstances(); }, 3000);
     versionsUnwatch = watch([includeSnapshots, includeBetas, includeAlphas], () => { void loadVersions(); });
+    platformUnwatch?.();
+    minecraftVersionUnwatch?.();
+    platformUnwatch = watch(selectedPlatformId, () => {
+        if (!requiresLoaderSelection.value) {
+            loaderVersions.value = [];
+            selectedLoaderVersionId.value = "";
+            return;
+        }
+        void loadLoaderVersions();
+    });
+    minecraftVersionUnwatch = watch(selectedMinecraftVersionId, () => {
+        if (!requiresLoaderSelection.value) return;
+        void loadLoaderVersions();
+    });
 }
 
 function cleanup() {
@@ -360,26 +434,31 @@ function cleanup() {
     if (instancePollInterval !== null) { window.clearInterval(instancePollInterval); instancePollInterval = null; }
     versionsUnwatch?.();
     versionsUnwatch = null;
+    platformUnwatch?.();
+    platformUnwatch = null;
+    minecraftVersionUnwatch?.();
+    minecraftVersionUnwatch = null;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 export function useLauncher() {
     return {
-        authData, instances, availableVersions,
+        authData, instances, availableVersions, availableMinecraftVersions, loaderVersions,
         selectedInstanceName, newInstanceName, selectedVersionId,
+        selectedPlatformId, selectedMinecraftVersionId, selectedLoaderVersionId,
         includeSnapshots, includeBetas, includeAlphas,
         isAuthenticating, isLaunching, launchPhase, launchMessage,
-        isCreatingInstance, isLoadingInstances, isLoadingVersions,
+        isCreatingInstance, isLoadingInstances, isLoadingVersions, isLoadingLoaderVersions,
         error, launcherMessage, notifications, unreadCount, formatNotifTime, clearNotification, clearAllNotifications,
         activeTab, showCreateModal, profileFilter, discoverTabActive, discoverPlatformActive, settingsNavItem, accentColor, toggleStates,
         uiScale, animationsEnabled, showFps,
         javaRuntimes, jvmArgs, minMemory, maxMemory,
-        selectedInstance, runningInstancesCount, selectedVersion,
+        selectedInstance, runningInstancesCount, selectedVersion, requiresLoaderSelection, platformOptions,
         playerName, playerSkinUrl, playerSkinFallback, playerSkinTextureUrl, playerAvatarUrl, playerAvatarFallback, filteredInstances,
         versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime, handleImgError,
         handleLogin, handleLogout, handleCreateInstance, handleLaunch, handleStop,
         handleWindowMinimize, handleWindowMaximize, handleWindowClose,
-        loadInstances, loadVersions, setAccentColor,
+        loadInstances, loadVersions, loadLoaderVersions, setAccentColor,
         init, cleanup,
     };
 }

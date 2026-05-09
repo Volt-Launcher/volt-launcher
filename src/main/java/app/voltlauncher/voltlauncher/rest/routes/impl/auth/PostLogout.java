@@ -1,6 +1,5 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl.auth;
 
-
 import app.voltlauncher.voltlauncher.rest.MethodType;
 import app.voltlauncher.voltlauncher.rest.auth.MicrosoftAuth;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
@@ -10,7 +9,7 @@ import org.json.JSONObject;
 
 @Route(path = "/api/auth/logout", method = MethodType.POST)
 public class PostLogout implements IRoute {
-    private MicrosoftAuth msAuth;
+    private final MicrosoftAuth msAuth;
 
     public PostLogout(MicrosoftAuth msAuth) {
         this.msAuth = msAuth;
@@ -31,3 +30,4 @@ public class PostLogout implements IRoute {
         }
     }
 }
+

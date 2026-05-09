@@ -1,15 +1,12 @@
 package app.voltlauncher.voltlauncher.launcher;
 
 import app.voltlauncher.voltlauncher.auth.MinecraftAccountSession;
+import app.voltlauncher.voltlauncher.launcher.java.JavaRuntimeResolver;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 public final class LaunchCommandBuilder {
 
@@ -19,16 +16,14 @@ public final class LaunchCommandBuilder {
         this.launcherClientId = launcherClientId;
     }
 
-    public List<String> build(
-            MinecraftAccountSession session,
-            AssetInstaller.Installation install,
-            JavaRuntimeResolver.JavaRuntime runtime) {
+    public List < String> build( MinecraftAccountSession session, AssetInstaller.Installation install,
+    JavaRuntimeResolver.JavaRuntime runtime) {
 
-        Map<String, String> vars = buildVars(session, install);
+        Map < String, String> vars = buildVars(session, install);
         JSONObject meta = install.launchMetadata();
         boolean isLegacy = !meta.has("arguments") && meta.has("minecraftArguments");
 
-        List<String> cmd = new ArrayList<>();
+        List < String> cmd = new ArrayList <> ();
         cmd.add(runtime.javaExecutable().toString());
 
         if (isLegacy) {
@@ -40,7 +35,7 @@ public final class LaunchCommandBuilder {
             cmd.add("-cp");
             cmd.add(install.classpath());
         } else {
-            List<String> jvmArgs = collectArgs(meta, "jvm");
+            List < String> jvmArgs = collectArgs(meta, "jvm");
             if (jvmArgs.stream().noneMatch(a -> a.startsWith("-Xmx"))) {
                 cmd.add("-Xmx2G");
             }
@@ -58,38 +53,38 @@ public final class LaunchCommandBuilder {
         return List.copyOf(cmd);
     }
 
-    private Map<String, String> buildVars(MinecraftAccountSession s, AssetInstaller.Installation i) {
-        Map<String, String> v = new HashMap<>();
-        v.put("auth_player_name",    s.username());
-        v.put("version_name",        i.launchVersionId());
-        v.put("game_directory",      i.instance().gameDirectory().toString());
-        v.put("assets_root",         i.assetsDirectory().toString());
-        v.put("assets_index_name",   i.assetIndexId());
-        v.put("auth_uuid",           s.uuid());
-        v.put("auth_access_token",   s.minecraftAccessToken());
-        v.put("auth_session",        s.minecraftAccessToken());
-        v.put("clientid",            launcherClientId);
-        v.put("auth_xuid",           s.xuid() == null ? "" : s.xuid());
-        v.put("user_type",           "msa");
-        v.put("version_type",        i.versionType());
-        v.put("user_properties",     "{}");
-        v.put("natives_directory",   i.nativesDirectory().toString());
-        v.put("launcher_name",       "TheLauncherProject");
-        v.put("launcher_version",    "0.1.0");
-        v.put("classpath",           i.classpath());
+    private Map < String, String> buildVars(MinecraftAccountSession s, AssetInstaller.Installation i) {
+        Map < String, String> v = new HashMap <> ();
+        v.put("auth_player_name", s.username());
+        v.put("version_name", i.launchVersionId());
+        v.put("game_directory", i.instance().gameDirectory().toString());
+        v.put("assets_root", i.assetsDirectory().toString());
+        v.put("assets_index_name", i.assetIndexId());
+        v.put("auth_uuid", s.uuid());
+        v.put("auth_access_token", s.minecraftAccessToken());
+        v.put("auth_session", s.minecraftAccessToken());
+        v.put("clientid", launcherClientId);
+        v.put("auth_xuid", s.xuid() == null ? "" : s.xuid());
+        v.put("user_type", "msa");
+        v.put("version_type", i.versionType());
+        v.put("user_properties", "{}");
+        v.put("natives_directory", i.nativesDirectory().toString());
+        v.put("launcher_name", "VoltLauncher");
+        v.put("launcher_version", "0.1.0");
+        v.put("classpath", i.classpath());
         v.put("classpath_separator", File.pathSeparator);
-        v.put("library_directory",   i.librariesDirectory().toString());
-        v.put("resolution_width",    "1280");
-        v.put("resolution_height",   "720");
-        v.put("game_assets",         i.assetsDirectory().resolve("virtual").resolve(i.assetIndexId()).toString());
+        v.put("library_directory", i.librariesDirectory().toString());
+        v.put("resolution_width", "1280");
+        v.put("resolution_height", "720");
+        v.put("game_assets", i.assetsDirectory().resolve("virtual").resolve(i.assetIndexId()).toString());
         if (i.loggingConfigPath() != null) {
             v.put("path", i.loggingConfigPath().toString());
         }
         return Map.copyOf(v);
     }
 
-    private List<String> collectArgs(JSONObject meta, String type) {
-        List<String> args = new ArrayList<>();
+    private List < String> collectArgs(JSONObject meta, String type) {
+        List < String> args = new ArrayList <> ();
         if (meta.has("arguments")) {
             JSONArray arr = meta.getJSONObject("arguments").optJSONArray(type);
             if (arr == null) return args;
@@ -99,7 +94,7 @@ public final class LaunchCommandBuilder {
                     args.add(s);
                     continue;
                 }
-                if (!(entry instanceof JSONObject jo)) continue;
+                if (!(entry instanceof JSONObject jo)) { continue; }
                 if (!isAllowedByRules(jo.optJSONArray("rules"))) continue;
                 Object val = jo.get("value");
                 if (val instanceof String sv) {
@@ -117,7 +112,7 @@ public final class LaunchCommandBuilder {
         if ("game".equals(type)) {
             String legacy = meta.optString("minecraftArguments", "");
             for (String part : legacy.split(" ")) {
-                if (!part.isBlank()) args.add(part.trim());
+                if (!part.isBlank()) { args.add(part.trim()); }
             }
         }
         return args;
@@ -128,7 +123,7 @@ public final class LaunchCommandBuilder {
         boolean allowed = false;
         for (int i = 0; i < rules.length(); i++) {
             JSONObject rule = rules.getJSONObject(i);
-            if (rule.has("features") && !rule.getJSONObject("features").isEmpty()) continue;
+            if (rule.has("features") && !rule.getJSONObject("features").isEmpty()) { continue; }
             if (rule.has("os") && !osMatches(rule.getJSONObject("os"))) continue;
             allowed = "allow".equals(rule.optString("action", "allow"));
         }
@@ -136,8 +131,8 @@ public final class LaunchCommandBuilder {
     }
 
     private boolean osMatches(JSONObject os) {
-        String osName    = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        String osArch    = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+        String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        String osArch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         String osVersion = System.getProperty("os.version", "");
 
         String expectedName = os.optString("name", "");
@@ -155,14 +150,14 @@ public final class LaunchCommandBuilder {
     }
 
     private String currentOsName(String osName) {
-        if (osName.contains("win"))                               return "windows";
+        if (osName.contains("win")) return "windows";
         if (osName.contains("mac") || osName.contains("darwin")) return "osx";
         return "linux";
     }
 
-    private String apply(String input, Map<String, String> vars) {
+    private String apply(String input, Map < String, String> vars) {
         String result = input;
-        for (Map.Entry<String, String> e : vars.entrySet()) {
+        for (Map.Entry < String, String> e : vars.entrySet()) {
             result = result.replace("${" + e.getKey() + "}", e.getValue());
         }
         return result;

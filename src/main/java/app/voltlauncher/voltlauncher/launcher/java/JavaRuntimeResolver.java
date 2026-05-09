@@ -1,4 +1,4 @@
-package app.voltlauncher.voltlauncher.launcher;
+package app.voltlauncher.voltlauncher.launcher.java;
 
 import app.voltlauncher.voltlauncher.AppPaths;
 
@@ -7,11 +7,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -19,15 +15,12 @@ import java.util.stream.Stream;
 
 public final class JavaRuntimeResolver {
 
-    public record JavaRuntime(int majorVersion, Path javaExecutable, String source) {}
-
     private static final Pattern VERSION_PATTERN = Pattern.compile("version \"([^\"]+)\"");
-
-    private final ConcurrentHashMap<Path, Integer> detectedMajorVersions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap < Path, Integer> detectedMajorVersions = new ConcurrentHashMap <> ();
     private final TemurinJdkDownloader temurinJdkDownloader = new TemurinJdkDownloader();
 
     public JavaRuntime resolveRuntime(int requiredMajorVersion) throws Exception {
-        List<JavaRuntime> candidates = discoverRuntimes(requiredMajorVersion);
+        List < JavaRuntime> candidates = discoverRuntimes(requiredMajorVersion);
         for (JavaRuntime candidate : candidates) {
             if (candidate.majorVersion() == requiredMajorVersion) {
                 return candidate;
@@ -37,14 +30,14 @@ public final class JavaRuntimeResolver {
         return new JavaRuntime(requiredMajorVersion, downloadedRuntime, "temurin-downloaded");
     }
 
-    private List<JavaRuntime> discoverRuntimes(int requiredMajorVersion) throws Exception {
-        List<JavaRuntime> runtimes = new ArrayList<>();
-        Set<Path> seen = new LinkedHashSet<>();
+    private List < JavaRuntime> discoverRuntimes(int requiredMajorVersion) throws Exception {
+        List < JavaRuntime> runtimes = new ArrayList <> ();
+        Set < Path> seen = new LinkedHashSet <> ();
 
-        for (String envVar : new String[]{
-                "JAVA_" + requiredMajorVersion + "_HOME",
-                "JDK_" + requiredMajorVersion + "_HOME",
-                "JRE_" + requiredMajorVersion + "_HOME"}) {
+        for (String envVar : new String[] {
+            "JAVA_" + requiredMajorVersion + "_HOME",
+            "JDK_" + requiredMajorVersion + "_HOME",
+            "JRE_" + requiredMajorVersion + "_HOME"}) {
             addHomeCandidate(runtimes, seen, System.getenv(envVar), envVar);
         }
         addHomeCandidate(runtimes, seen, System.getProperty("java.home"), "java.home");
@@ -63,7 +56,7 @@ public final class JavaRuntimeResolver {
     }
 
     private void addHomeCandidate(
-            List<JavaRuntime> runtimes, Set<Path> seen, String home, String source) throws Exception {
+    List < JavaRuntime> runtimes, Set < Path> seen, String home, String source) throws Exception {
         if (home == null || home.isBlank()) {
             return;
         }
@@ -71,7 +64,7 @@ public final class JavaRuntimeResolver {
     }
 
     private void addExecutableCandidate(
-            List<JavaRuntime> runtimes, Set<Path> seen, Path executable, String source) throws Exception {
+    List < JavaRuntime> runtimes, Set < Path> seen, Path executable, String source) throws Exception {
         if (executable == null || !Files.exists(executable)) {
             return;
         }
@@ -84,7 +77,7 @@ public final class JavaRuntimeResolver {
                 return;
             }
             runtimes.add(new JavaRuntime(detectMajorVersion(normalized), normalized, source));
-        } catch (IOException _) {}
+        } catch (IOException unused) {}
     }
 
     private Path resolveJavaExecutable(Path javaHome) {
@@ -92,16 +85,14 @@ public final class JavaRuntimeResolver {
         return javaHome.resolve("bin").resolve(windows ? "java.exe" : "java");
     }
 
-    private List<Path> discoverCommandCandidates() {
-        List<Path> result = new ArrayList<>();
+    private List < Path> discoverCommandCandidates() {
+        List < Path> result = new ArrayList <> ();
         boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-        List<String> command = windows
-                ? List.of("cmd", "/c", "where java")
-                : List.of("bash", "-lc", "which -a java");
+        List < String> command = windows ? List.of("cmd", "/c", "where java") : List.of("bash", "-lc", "which -a java");
         try {
             Process process = new ProcessBuilder(command).start();
             try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
+            new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     String trimmed = line.trim();
@@ -111,30 +102,29 @@ public final class JavaRuntimeResolver {
                 }
             }
             process.waitFor();
-        } catch (Exception _) {}
+        } catch (Exception unused) {}
         return result;
     }
 
-    private List<Path> discoverManagedRuntimeCandidates() {
-        List<Path> result = new ArrayList<>();
+    private List < Path> discoverManagedRuntimeCandidates() {
+        List < Path> result = new ArrayList <> ();
         Path runtimesDir = AppPaths.temurinRuntimesDirectory();
         if (!Files.isDirectory(runtimesDir)) {
             return result;
         }
-        String execName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
-                ? "java.exe" : "java";
-        try (Stream<Path> stream = Files.list(runtimesDir)) {
+        String execName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "java.exe" : "java";
+        try (Stream < Path> stream = Files.list(runtimesDir)) {
             stream.filter(Files::isDirectory)
-                    .filter(p -> !p.getFileName().toString().endsWith(".tmp"))
-                    .map(p -> p.resolve("bin").resolve(execName))
-                    .filter(Files::exists)
-                    .forEach(result::add);
-        } catch (IOException _) {}
+            .filter(p -> !p.getFileName().toString().endsWith(".tmp"))
+            .map(p -> p.resolve("bin").resolve(execName))
+            .filter(Files::exists)
+            .forEach(result::add);
+        } catch (IOException unused) {}
         return result;
     }
 
-    private List<Path> discoverCommonInstallCandidates() {
-        List<Path> result = new ArrayList<>();
+    private List < Path> discoverCommonInstallCandidates() {
+        List < Path> result = new ArrayList <> ();
         String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (osName.contains("win")) {
             addExecutablesInDirectory(result, Path.of("C:/Program Files/Java"), false);
@@ -155,20 +145,18 @@ public final class JavaRuntimeResolver {
         return result;
     }
 
-    private void addExecutablesInDirectory(List<Path> target, Path base, boolean macBundle) {
+    private void addExecutablesInDirectory(List < Path> target, Path base, boolean macBundle) {
         if (!Files.isDirectory(base)) {
             return;
         }
-        try (Stream<Path> stream = Files.list(base)) {
+        try (Stream < Path> stream = Files.list(base)) {
             stream.filter(Files::isDirectory).forEach(dir -> {
-                Path exec = macBundle
-                        ? dir.resolve("Contents/Home/bin/java")
-                        : resolveJavaExecutable(dir);
+                Path exec = macBundle ? dir.resolve("Contents/Home/bin/java") : resolveJavaExecutable(dir);
                 if (Files.exists(exec)) {
                     target.add(exec);
                 }
             });
-        } catch (IOException _) {}
+        } catch (IOException unused) {}
     }
 
     private int detectMajorVersion(Path javaExecutable) throws Exception {
@@ -178,10 +166,10 @@ public final class JavaRuntimeResolver {
         }
         StringBuilder output = new StringBuilder();
         Process process = new ProcessBuilder(javaExecutable.toString(), "-version")
-                .redirectErrorStream(true)
-                .start();
+        .redirectErrorStream(true)
+        .start();
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
+        new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 output.append(line).append('\n');
@@ -215,4 +203,6 @@ public final class JavaRuntimeResolver {
         }
         throw new IllegalStateException("Could not parse Java major version from: " + version);
     }
+
+    public record JavaRuntime(int majorVersion, Path javaExecutable, String source) {}
 }

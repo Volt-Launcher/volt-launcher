@@ -56,23 +56,12 @@ public class EncryptedAccountStore {
         }
 
         JSONObject wrapper = new JSONObject(Files.readString(storagePath, StandardCharsets.UTF_8));
-        Aes256GcmCipher.EncryptedPayload encryptedPayload = new Aes256GcmCipher.EncryptedPayload(
-                wrapper.getString("iv"),
-                wrapper.getString("cipherText"));
+        Aes256GcmCipher.EncryptedPayload encryptedPayload = new Aes256GcmCipher.EncryptedPayload( wrapper.getString("iv"), wrapper.getString("cipherText"));
 
         byte[] plainBytes = cipher.decrypt(encryptedPayload);
         JSONObject plain = new JSONObject(new String(plainBytes, StandardCharsets.UTF_8));
 
-        return new MinecraftAccountSession(
-                plain.getString("uuid"),
-                plain.getString("username"),
-                plain.getString("minecraftAccessToken"),
-                plain.getLong("minecraftAccessTokenExpiresAt"),
-                plain.getString("microsoftAccessToken"),
-                plain.getLong("microsoftAccessTokenExpiresAt"),
-                plain.getString("microsoftRefreshToken"),
-                plain.optString("userHash", ""),
-                plain.optString("xuid", ""));
+        return new MinecraftAccountSession( plain.getString("uuid"), plain.getString("username"), plain.getString("minecraftAccessToken"), plain.getLong("minecraftAccessTokenExpiresAt"), plain.getString("microsoftAccessToken"), plain.getLong("microsoftAccessTokenExpiresAt"), plain.getString("microsoftRefreshToken"), plain.optString("userHash", ""), plain.optString("xuid", ""));
     }
 
     public synchronized void clear() throws Exception {
@@ -81,11 +70,10 @@ public class EncryptedAccountStore {
 
     private void applyOwnerOnlyPermissions() {
         try {
-            Set<PosixFilePermission> permissions = EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+            Set < PosixFilePermission> permissions = EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
             Files.setPosixFilePermissions(storagePath, permissions);
         } catch (UnsupportedOperationException | java.io.IOException ignored) {
         }
     }
 }
-
 

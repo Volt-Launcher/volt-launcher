@@ -1,8 +1,8 @@
 # TODO
 
 - [ ] Download Java Version
-- [ ] Recode Microsoft Login
-- [ ] Fix using the correct Java Version for profiles
+- [x] Recode/Fix Microsoft Login
+- [x] Fix using the correct Java Version for profiles
 - [ ] Add Install from discovery
 - [ ] Add Install into profile from discovery
 - [ ] Add support for custom Java installations
@@ -13,8 +13,8 @@
 - [ ] Fix scrolling
 - [ ] Add GraalVM support for executables
 - [ ] Create universal setup
-- [ ] Add support for the NeoForge platform
-- [ ] Add support for the Fabric platform
-- [ ] Add support for the Forge platform
-- [ ] Add support for the Quilt platform
+- [x] Add support for the NeoForge platform
+- [x] Add support for the Fabric platform
+- [x] Add support for the Forge platform
+- [x] Add support for the Quilt platform
 - [x] Add support for the Vanilla platform

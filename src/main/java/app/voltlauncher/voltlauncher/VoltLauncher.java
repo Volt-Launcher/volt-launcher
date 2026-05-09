@@ -1,295 +1,134 @@
 package app.voltlauncher.voltlauncher;
 
-import app.voltlauncher.voltlauncher.auth.OAuthClient;
-import app.voltlauncher.voltlauncher.jcef.JcefBootstrap;
 import app.voltlauncher.voltlauncher.rest.RestServer;
-import org.cef.CefApp;
-import org.cef.CefClient;
-import org.cef.browser.CefBrowser;
-import org.cef.browser.CefFrame;
-import org.cef.handler.CefContextMenuHandlerAdapter;
-import org.cef.handler.CefRequestHandlerAdapter;
-import org.cef.network.CefRequest;
-import org.cef.callback.CefContextMenuParams;
-import org.cef.callback.CefMenuModel;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.*;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
+import java.net.URISyntaxException;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VoltLauncher {
 
-    private static final Color APP_BG = new Color(3, 9, 18);
-
-    private static volatile RestServer restServer;
-    private static volatile CefApp    cefApp;
-    private static volatile CefBrowser mainBrowser;
-    private static volatile JFrame    mainFrame;
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
+    private static final Object DIAG_LOCK = new Object();
+    private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    private static volatile RestServer restServer;
+    private static Process electronProcess;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
+        installDiagnostics();
         registerShutdownHook();
         startParentExitWatcher(resolveParentPid(args));
 
-        restServer = new RestServer(
-                7070,
-                VoltLauncher::minimizeMainWindow,
-                VoltLauncher::toggleMaximizeMainWindow,
-                VoltLauncher::requestCloseMainWindow,
-                VoltLauncher::openAuthPopup
-        );
+        restServer = new RestServer( 7070, VoltLauncher::minimizeMainWindow, VoltLauncher::toggleMaximizeMainWindow, VoltLauncher::requestCloseMainWindow, url -> {} );
         restServer.start();
 
-        String[] cefArgs = Arrays.copyOf(args, args.length + 1);
-        cefArgs[args.length] = "--disable-features=OverlayScrollbar";
-
-        Thread.ofVirtual().start(() -> {
-            try {
-                CefApp app = JcefBootstrap.initialize(cefArgs);
-                cefApp = app;
-                SwingUtilities.invokeLater(() -> buildMainWindow(app));
-            } catch (Exception e) {
-                System.err.println("[JCEF] Initialisierung fehlgeschlagen: " + e.getMessage());
-                e.printStackTrace();
-                shutdown();
-            }
-        });
+        System.out.println("[Launcher] Starte Electron Frontend...");
+        startElectronProcess();
     }
 
-    private static void buildMainWindow(CefApp app) {
-        JFrame frame = new JFrame("TheLauncherProject");
-        mainFrame = frame;
-        frame.setSize(1280, 720);
-        frame.setLocationRelativeTo(null);
-        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        frame.setUndecorated(true);
-        frame.getContentPane().setBackground(APP_BG);
-
-        CefClient client = app.createClient();
-
-        client.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
-            @Override
-            public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
-                                            CefContextMenuParams params, CefMenuModel model) {
-                model.clear();
-            }
-        });
-
-        CefBrowser browser = client.createBrowser("http://localhost:7070/", true, false);
-        mainBrowser = browser;
-        Component browserUI = browser.getUIComponent();
-
-        makeDraggable(frame, browserUI, 50);
-
-        if (browserUI instanceof JComponent jc) {
-            jc.setBackground(APP_BG);
-            jc.setOpaque(true);
-        }
-
-        browserUI.setFocusable(true);
-        browserUI.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                browserUI.requestFocusInWindow();
-            }
-        });
-
-        browserUI.addMouseWheelListener(e -> {
-            e.consume();
-            int pixels = (int) (e.getPreciseWheelRotation() * 80);
-            int mx = e.getX();
-            int my = e.getY();
-            browser.executeJavaScript("""
-                (function() {
-                    var el = document.elementFromPoint(%d, %d);
-                    while (el && el !== document.body) {
-                        var s = getComputedStyle(el);
-                        if ((s.overflow + s.overflowY).match(/auto|scroll/)) {
-                            el.scrollTop += %d;
-                            return;
-                        }
-                        el = el.parentElement;
-                    }
-                    window.scrollBy(0, %d);
-                })();
-            """.formatted(mx, my, pixels, pixels), browser.getURL(), 0);
-        });
-
-        browserUI.addComponentListener(new ComponentAdapter() {
-            private Timer debounce;
-
-            @Override
-            public void componentResized(ComponentEvent e) {
-                if (debounce != null && debounce.isRunning()) {
-                    debounce.restart();
-                } else {
-                    debounce = new Timer(80, ev ->
-                            browser.executeJavaScript(
-                                    "window.dispatchEvent(new Event('resize'));",
-                                    browser.getURL(), 0));
-                    debounce.setRepeats(false);
-                    debounce.start();
-                }
-            }
-        });
-
-        frame.getContentPane().add(browserUI, BorderLayout.CENTER);
-
-        frame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                shutdown();
-            }
-        });
-
-        frame.setVisible(true);
-    }
-
-    private static void openAuthPopup(String authUrl) {
-        SwingUtilities.invokeLater(() -> {
-            CefApp app = cefApp;
-            if (app == null) return;
-
-            JFrame[] popupRef = new JFrame[1];
-            CefClient popupClient = app.createClient();
-
-            popupClient.addContextMenuHandler(new CefContextMenuHandlerAdapter() {
-                @Override
-                public void onBeforeContextMenu(CefBrowser browser, CefFrame frame,
-                                                CefContextMenuParams params, CefMenuModel model) {
-                    model.clear();
-                }
-            });
-
-            popupClient.addRequestHandler(new CefRequestHandlerAdapter() {
-                @Override
-                public boolean onBeforeBrowse(CefBrowser browser, CefFrame frame,
-                                              CefRequest request, boolean userGesture, boolean isRedirect) {
-                    String url = request.getURL();
-                    if (url != null && url.startsWith(OAuthClient.REDIRECT_URI)) {
-                        handleRedirectUrl(url);
-                        SwingUtilities.invokeLater(() -> {
-                            browser.close(true);
-                            JFrame popup = popupRef[0];
-                            if (popup != null) popup.dispose();
-                        });
-                        return true;
-                    }
-                    return false;
-                }
-            });
-
-            CefBrowser popupBrowser = popupClient.createBrowser(authUrl, true, false);
-            popupBrowser.setWindowlessFrameRate(60);
-
-            JFrame popup = new JFrame("Bei Minecraft anmelden");
-            popupRef[0] = popup;
-            popup.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-            popup.setLayout(new BorderLayout());
-            popup.setSize(520, 760);
-            popup.setLocationRelativeTo(mainFrame);
-
-            Component popupUI = popupBrowser.getUIComponent();
-            popupUI.setFocusable(true);
-            popupUI.addMouseWheelListener(e -> {
-                e.consume();
-                int pixels = (int) (e.getPreciseWheelRotation() * 80);
-                popupBrowser.executeJavaScript(
-                        "window.scrollBy(0, " + pixels + ");",
-                        popupBrowser.getURL(), 0);
-            });
-
-            popup.add(popupUI, BorderLayout.CENTER);
-            popup.addWindowListener(new WindowAdapter() {
-                @Override
-                public void windowClosing(WindowEvent e) {
-                    popupBrowser.close(true);
-                    popup.dispose();
-                }
-            });
-
-            popup.setVisible(true);
-        });
-    }
-
-    private static void handleRedirectUrl(String url) {
+    private static void startElectronProcess() {
         try {
-            String query = URI.create(url).getQuery();
-            if (query == null) return;
+            String osDir = "";
+            String executable = "";
+            if (isMac()) {
+                osDir = isArm() ? "mac-arm64" : "mac";
+                executable = "VoltLauncher.app/Contents/MacOS/VoltLauncher";
+            } else if (isLinux()) {
+                osDir = "linux-unpacked";
+                executable = "voltlauncher";
+            } else {
+                osDir = "win-unpacked";
+                executable = "VoltLauncher.exe";
+            }
 
-            String code = null, state = null, error = null, errorDesc = null;
-            for (String part : query.split("&")) {
-                int eq = part.indexOf('=');
-                if (eq < 0) continue;
-                String key   = URLDecoder.decode(part.substring(0, eq),  StandardCharsets.UTF_8);
-                String value = URLDecoder.decode(part.substring(eq + 1), StandardCharsets.UTF_8);
-                switch (key) {
-                    case "code"              -> code      = value;
-                    case "state"             -> state     = value;
-                    case "error"             -> error     = value;
-                    case "error_description" -> errorDesc = value;
+            Path electronBaseDir = app.voltlauncher.voltlauncher.AppPaths.baseDirectory().resolve("electron");
+            Path binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
+
+            if (!Files.exists(binaryPath)) {
+                System.out.println("[Launcher] Electron Binary nicht gefunden unter " + binaryPath + ", entpacke Ressourcen...");
+                extractElectronResources(electronBaseDir, osDir);
+
+                if (!Files.exists(binaryPath)) {
+                    // Try lower-cased defaults just in case
+                    if (isMac()) {
+                        executable = "voltlauncher-ui.app/Contents/MacOS/voltlauncher-ui";
+                    } else if (isLinux()) {
+                        executable = "voltlauncher-ui";
+                    } else {
+                        executable = "voltlauncher-ui.exe";
+                    }
+                    binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
                 }
             }
 
-            if (error != null && state != null) {
-                restServer.failAuth(state, errorDesc != null ? errorDesc : error);
-                return;
+            if (!Files.exists(binaryPath)) {
+                System.err.println("[Launcher] FEHLER: Electron Binary weiterhin nicht gefunden! Bitte Build prüfen. Erwarte: " + binaryPath);
             }
-            if (code != null && state != null) {
-                restServer.submitAuthCode(code, state);
-            }
+
+            ProcessBuilder pb = new ProcessBuilder(binaryPath.toString());
+            pb.directory(electronBaseDir.toFile());
+            pb.inheritIO();
+
+            electronProcess = pb.start();
+            electronProcess.onExit().thenRun(() -> {
+                System.out.println("[Launcher] Electron Prozess wurde beendet. Schließe Backend...");
+                shutdown();
+            });
         } catch (Exception e) {
-            System.err.println("[Auth] Redirect-URL konnte nicht verarbeitet werden: " + e.getMessage());
+            System.err.println("[Launcher] Konnte Electron Prozess nicht starten: " + e.getMessage());
+            logException("[Launcher] Fehler beim Starten von Electron", e);
+            shutdown();
         }
     }
 
-    private static void makeDraggable(JFrame frame, Component dragComponent, int dragHeight) {
-        final int[] mouseX = new int[1];
-        final int[] mouseY = new int[1];
-        final boolean[] dragging = new boolean[1];
+    private static void extractElectronResources(Path targetDir, String osDir) throws IOException, URISyntaxException {
+        java.net.URL resource = VoltLauncher.class.getResource("/electron-bin/" + osDir + ".tar.gz");
+        if (resource == null) {
+            System.err.println("[Launcher] /electron-bin/" + osDir + ".tar.gz nicht in den Ressourcen gefunden! Wurde das UI korrekt gebaut?");
+            return;
+        }
 
-        dragComponent.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.getY() > dragHeight) { dragging[0] = false; return; }
-                mouseX[0] = e.getXOnScreen() - frame.getX();
-                mouseY[0] = e.getYOnScreen() - frame.getY();
-                dragging[0] = true;
-            }
-            @Override
-            public void mouseReleased(MouseEvent e) { dragging[0] = false; }
-        });
+        Files.createDirectories(targetDir);
+        Path tarPath = targetDir.resolve(osDir + ".tar.gz");
 
-        dragComponent.addMouseMotionListener(new MouseMotionAdapter() {
-            @Override
-            public void mouseDragged(MouseEvent e) {
-                if (!dragging[0]) return;
-                frame.setLocation(e.getXOnScreen() - mouseX[0], e.getYOnScreen() - mouseY[0]);
-            }
-        });
+        try (java.io.InputStream in = resource.openStream()) {
+            Files.copy(in, tarPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        Path osDirPath = targetDir.resolve(osDir);
+        Files.createDirectories(osDirPath);
+
+        System.out.println("[Launcher] Entpacke " + tarPath + " nach " + targetDir + " ...");
+        try {
+            ProcessBuilder pb = new ProcessBuilder("tar", "-xzf", tarPath.getFileName().toString());
+            pb.directory(targetDir.toFile());
+            pb.inheritIO();
+            Process p = pb.start();
+            p.waitFor();
+            Files.deleteIfExists(tarPath);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Entpacken unterbrochen", e);
+        }
     }
 
     private static void minimizeMainWindow() {
-        SwingUtilities.invokeLater(() -> {
-            JFrame frame = mainFrame;
-            if (frame == null || !frame.isDisplayable()) return;
-            frame.setState(Frame.ICONIFIED);
-        });
+        // Send to electron if needed, or let electron handle it
     }
 
     private static void toggleMaximizeMainWindow() {
-        SwingUtilities.invokeLater(() -> {
-            JFrame frame = mainFrame;
-            if (frame == null || !frame.isDisplayable()) return;
-            int state = frame.getExtendedState();
-            boolean maximized = (state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH;
-            frame.setExtendedState(maximized ? Frame.NORMAL : (state | Frame.MAXIMIZED_BOTH));
-        });
+        // Send to electron if needed, or let electron handle it
     }
 
     private static void requestCloseMainWindow() {
@@ -299,39 +138,19 @@ public class VoltLauncher {
         });
     }
 
+
     private static void shutdown() { shutdown(true); }
 
     private static void shutdown(boolean exitJvm) {
         if (!SHUTDOWN_STARTED.compareAndSet(false, true)) return;
 
-        // Reihenfolge ist entscheidend:
-        // 1. Frame verstecken damit kein weiteres Rendern angefordert wird
-        // 2. Browser schließen → JCEF stoppt onPaint-Calls
-        // 3. Kurz warten damit JCEF den laufenden Paint abschließen kann
-        // 4. RestServer stoppen
-        // 5. CefApp disposen
-        JFrame frame = mainFrame;
-        if (frame != null && frame.isDisplayable()) {
-            SwingUtilities.invokeLater(() -> {
-                frame.setVisible(false);
-                frame.dispose();
-            });
+        if (electronProcess != null) {
+            electronProcess.destroy();
         }
-
-        CefBrowser browser = mainBrowser;
-        if (browser != null) {
-            try { browser.close(true); } catch (Exception ignored) {}
-            mainBrowser = null;
-        }
-
-        // JCEF braucht einen Moment um den laufenden Paint-Cycle abzuschließen
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
 
         try { if (restServer != null) restServer.stop(); } catch (Exception ignored) {}
 
-        try { if (cefApp != null) cefApp.dispose(); } catch (Exception ignored) {}
-
-        if (exitJvm) System.exit(0);
+        if (exitJvm) { System.exit(0); }
     }
 
     private static void registerShutdownHook() {
@@ -340,7 +159,7 @@ public class VoltLauncher {
 
     private static long resolveParentPid(String[] args) {
         for (String arg : args) {
-            if (!arg.startsWith("--parent-pid=")) continue;
+            if (!arg.startsWith("--parent-pid=")) { continue; }
             try { return Long.parseLong(arg.substring("--parent-pid=".length())); }
             catch (NumberFormatException ignored) { return -1; }
         }
@@ -352,5 +171,71 @@ public class VoltLauncher {
         ProcessHandle parent = ProcessHandle.of(parentPid).orElse(null);
         if (parent == null) return;
         parent.onExit().thenRun(VoltLauncher::shutdown);
+    }
+
+    private static boolean isMac() {
+        return System.getProperty("os.name", "").toLowerCase().contains("mac");
+    }
+
+    private static boolean isLinux() {
+        return System.getProperty("os.name", "").toLowerCase().contains("linux");
+    }
+
+    private static boolean isArm() {
+        String arch = System.getProperty("os.arch").toLowerCase();
+        return arch.contains("aarch64") || arch.contains("arm");
+    }
+
+
+    private static void installDiagnostics() {
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            if (throwable == null) {
+                System.err.println("[Launcher] Uncaught exception without throwable in thread: " + thread.getName());
+                return;
+            }
+            logUncaught(thread, throwable);
+        });
+    }
+
+    private static void logUncaught(Thread thread, Throwable throwable) {
+        StringWriter sw = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(sw));
+        StringBuilder dump = new StringBuilder();
+        dump.append('[').append(TS_FORMAT.format(LocalDateTime.now())).append("] Uncaught in ")
+            .append(thread.getName()).append(" (#").append(thread.threadId()).append(")\n")
+            .append(sw)
+            .append("\n--- Thread dump ---\n");
+
+        for (var entry : Thread.getAllStackTraces().entrySet()) {
+            Thread t = entry.getKey();
+            dump.append('"').append(t.getName()).append('"')
+                .append(" id=").append(t.threadId())
+                .append(" state=").append(t.getState())
+                .append('\n');
+            for (StackTraceElement ste : entry.getValue()) {
+                dump.append("    at ").append(ste).append('\n');
+            }
+        }
+
+        String payload = dump.toString();
+        synchronized (DIAG_LOCK) {
+            System.err.println(payload);
+            try {
+                Path logsDir = AppPaths.logsDirectory();
+                Files.createDirectories(logsDir);
+                Path file = logsDir.resolve("launcher-uncaught.log");
+                Files.writeString(file, payload + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            } catch (IOException io) {
+                System.err.println("[Launcher] Konnte Uncaught-Logdatei nicht schreiben: " + io.getMessage());
+            }
+        }
+    }
+
+    private static void logException(String prefix, Throwable throwable) {
+        StringWriter sw = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(sw));
+        synchronized (DIAG_LOCK) {
+            System.err.println(prefix + "\n" + sw);
+        }
     }
 }

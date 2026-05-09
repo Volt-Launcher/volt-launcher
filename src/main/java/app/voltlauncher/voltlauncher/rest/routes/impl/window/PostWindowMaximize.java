@@ -8,7 +8,7 @@ import io.javalin.http.Context;
 
 @Route(path = "/api/window/maximize", method = MethodType.POST)
 public class PostWindowMaximize implements IRoute {
-    private RestServer.WindowAction maximizeWindowAction;
+    private final RestServer.WindowAction maximizeWindowAction;
 
     public PostWindowMaximize(RestServer.WindowAction maximizeWindowAction) {
         this.maximizeWindowAction = maximizeWindowAction;
@@ -20,3 +20,4 @@ public class PostWindowMaximize implements IRoute {
         catch (Exception e) { ctx.status(500).contentType("application/json").result("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}"); }
     }
 }
+
