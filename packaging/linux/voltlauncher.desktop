@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=VoltLauncher
+Exec=volt-launcher
+Icon=voltlauncher
+Type=Application
+Categories=Game;
+Comment=A modern Minecraft launcher

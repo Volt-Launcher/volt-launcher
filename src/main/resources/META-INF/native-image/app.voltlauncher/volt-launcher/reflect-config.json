@@ -1,0 +1,147 @@
+[
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.Route",
+    "queryAllDeclaredMethods": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.Test",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.GetInstances",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.GetInstancesVersions",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.GetInstanceLoaderVersions",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.GetInstanceLaunchStatus",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.PostInstances",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.PostInstanceLaunch",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.PostInstanceStop",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetSession",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetLogin",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetAuthStatus",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.auth.PostAuthCallback",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.auth.PostLogout",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowMinimize",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowMaximize",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowClose",
+    "queryAllDeclaredMethods": true,
+    "allDeclaredAnnotations": true
+  },
+  {
+    "name": "app.voltlauncher.voltlauncher.rest.MethodType",
+    "allEnumConstants": true,
+    "queryAllDeclaredMethods": true
+  },
+  {
+    "name": "org.slf4j.simple.SimpleServiceProvider",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.slf4j.LoggerFactory",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "sun.security.provider.NativePRNG",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "sun.security.provider.SHA",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "sun.security.provider.SHA2$SHA256",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "sun.security.provider.SHA5$SHA512",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "com.sun.crypto.provider.AESCipher$General",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "com.sun.crypto.provider.GaloisCounterMode$AESGCM",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "sun.security.ssl.SSLContextImpl$TLSContext",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "sun.security.ssl.SSLContextImpl$TLS13Context",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "java.lang.Thread",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  }
+]
