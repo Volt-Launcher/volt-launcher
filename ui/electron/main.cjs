@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 const process = require('process');
 
@@ -14,7 +14,7 @@ function createWindow() {
       nodeIntegration: true,
       contextIsolation: false
     },
-    frame: process.platform !== 'darwin',
+    frame: process.platform === 'darwin',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#030912',
     show: false
@@ -94,6 +94,13 @@ function createWindow() {
     mainWindow.show();
   });
 }
+
+ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+  else mainWindow?.maximize();
+});
+ipcMain.on('window-close', () => mainWindow?.close());
 
 app.whenReady().then(() => {
   createWindow();

@@ -60,7 +60,7 @@ const isMac = navigator.userAgent.toLowerCase().includes('mac');
 </script>
 <template>
   <div class="relative">
-    <div v-if="isMac" :class="{ 'h-8 border border-white/10': isMac }"></div>
+    <div v-if="isMac" class="h-8" style="-webkit-app-region: drag"></div>
     <BaseHeader class="flex items-center w-full px-4 pt-1" style="-webkit-app-region: drag">
 
       <!-- Navigation -->

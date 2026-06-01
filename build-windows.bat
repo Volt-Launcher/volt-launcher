@@ -4,6 +4,8 @@ setlocal enabledelayedexpansion
 set VERSION=0.1.0
 set APP_NAME=VoltLauncher
 set BINARY_NAME=volt-launcher
+set OUTPUT_DIR=build\windows
+set ELECTRON_DIR=win-unpacked
 
 REM Use GraalVM JDK if GRAALVM_HOME is set
 if defined GRAALVM_HOME (
@@ -23,29 +25,20 @@ call pnpm exec vite build
 call pnpm exec electron-builder --win --dir
 cd ..
 
-REM Step 2: Package electron binary as tar.gz
-echo [2/3] Packaging Electron binary...
-del /q src\main\resources\electron-bin\*.tar.gz 2>nul
-
-if exist "src\main\resources\electron-bin\win-unpacked" (
-    cd src\main\resources\electron-bin
-    tar -czf win-unpacked.tar.gz win-unpacked
-    rmdir /s /q win-unpacked
-    cd ..\..\..\..
-) else (
-    echo ERROR: win-unpacked directory not found!
-    exit /b 1
-)
-
-REM Remove other platform artifacts
+REM Clean up builder metadata and other platform artifacts
+del /q "src\main\resources\electron-bin\builder-debug.yml" 2>nul
+del /q "src\main\resources\electron-bin\builder-effective-config.yaml" 2>nul
 if exist "src\main\resources\electron-bin\mac" rmdir /s /q "src\main\resources\electron-bin\mac"
 if exist "src\main\resources\electron-bin\mac-arm64" rmdir /s /q "src\main\resources\electron-bin\mac-arm64"
 if exist "src\main\resources\electron-bin\linux-unpacked" rmdir /s /q "src\main\resources\electron-bin\linux-unpacked"
-del /q "src\main\resources\electron-bin\builder-debug.yml" 2>nul
-del /q "src\main\resources\electron-bin\builder-effective-config.yaml" 2>nul
 
-REM Step 3: Build GraalVM native image
-echo [3/3] Building GraalVM native image...
+if not exist "src\main\resources\electron-bin\%ELECTRON_DIR%" (
+    echo ERROR: %ELECTRON_DIR% not found in src\main\resources\electron-bin!
+    exit /b 1
+)
+
+REM Step 2: Build GraalVM native image
+echo [2/3] Building GraalVM native image...
 call mvn clean package -Pnative -DskipTests
 
 if not exist "target\%BINARY_NAME%.exe" (
@@ -53,8 +46,24 @@ if not exist "target\%BINARY_NAME%.exe" (
     exit /b 1
 )
 
+REM Step 3: Assemble build output
+echo [3/3] Assembling build output in %OUTPUT_DIR%...
+if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
+mkdir "%OUTPUT_DIR%\electron"
+
+REM Copy native binary
+copy "target\%BINARY_NAME%.exe" "%OUTPUT_DIR%\%BINARY_NAME%.exe"
+
+REM Copy electron binary alongside main binary
+xcopy /e /i /q "src\main\resources\electron-bin\%ELECTRON_DIR%" "%OUTPUT_DIR%\electron\%ELECTRON_DIR%\"
+
+REM Clean electron-bin after copying
+if exist "src\main\resources\electron-bin\win-unpacked" rmdir /s /q "src\main\resources\electron-bin\win-unpacked"
+
 echo.
 echo === Build complete ===
-echo   Native binary: target\%BINARY_NAME%.exe
+echo   Output directory: %OUTPUT_DIR%\
+echo   Native binary:    %OUTPUT_DIR%\%BINARY_NAME%.exe
+echo   Electron:         %OUTPUT_DIR%\electron\%ELECTRON_DIR%
 
 endlocal

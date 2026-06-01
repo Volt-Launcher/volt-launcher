@@ -2,23 +2,13 @@ package app.voltlauncher.voltlauncher;
 
 import app.voltlauncher.voltlauncher.rest.RestServer;
 
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
-
-import java.io.BufferedInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.EnumSet;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VoltLauncher {
@@ -43,8 +33,8 @@ public class VoltLauncher {
 
     private static void startElectronProcess() {
         try {
-            String osDir = "";
-            String executable = "";
+            String osDir;
+            String executable;
             if (isMac()) {
                 osDir = isArm() ? "mac-arm64" : "mac";
                 executable = "VoltLauncher.app/Contents/MacOS/VoltLauncher";
@@ -56,28 +46,25 @@ public class VoltLauncher {
                 executable = "VoltLauncher.exe";
             }
 
-            Path electronBaseDir = app.voltlauncher.voltlauncher.AppPaths.baseDirectory().resolve("electron");
+            Path electronBaseDir = resolveElectronBaseDir();
             Path binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
 
             if (!Files.exists(binaryPath)) {
-                System.out.println("[Launcher] Electron Binary nicht gefunden unter " + binaryPath + ", entpacke Ressourcen...");
-                extractElectronResources(electronBaseDir, osDir);
-
-                if (!Files.exists(binaryPath)) {
-                    // Try lower-cased defaults just in case
-                    if (isMac()) {
-                        executable = "voltlauncher-ui.app/Contents/MacOS/voltlauncher-ui";
-                    } else if (isLinux()) {
-                        executable = "voltlauncher-ui";
-                    } else {
-                        executable = "voltlauncher-ui.exe";
-                    }
-                    binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
+                // Try lower-cased defaults just in case
+                if (isMac()) {
+                    executable = "voltlauncher-ui.app/Contents/MacOS/voltlauncher-ui";
+                } else if (isLinux()) {
+                    executable = "voltlauncher-ui";
+                } else {
+                    executable = "voltlauncher-ui.exe";
                 }
+                binaryPath = electronBaseDir.resolve(osDir).resolve(executable);
             }
 
             if (!Files.exists(binaryPath)) {
-                System.err.println("[Launcher] FEHLER: Electron Binary weiterhin nicht gefunden! Bitte Build prüfen. Erwarte: " + binaryPath);
+                System.err.println("[Launcher] ERROR: Electron binary not found: " + binaryPath);
+                shutdown();
+                return;
             }
 
             ProcessBuilder pb = new ProcessBuilder(binaryPath.toString());
@@ -86,85 +73,20 @@ public class VoltLauncher {
 
             electronProcess = pb.start();
             electronProcess.onExit().thenRun(() -> {
-                System.out.println("[Launcher] Electron Prozess wurde beendet. Schließe Backend...");
+                System.out.println("[Launcher] Electron process exited. Shutting down backend...");
                 shutdown();
             });
         } catch (Exception e) {
-            System.err.println("[Launcher] Konnte Electron Prozess nicht starten: " + e.getMessage());
-            logException("[Launcher] Fehler beim Starten von Electron", e);
+            System.err.println("[Launcher] Could not start Electron process: " + e.getMessage());
+            logException("[Launcher] Error starting Electron", e);
             shutdown();
         }
     }
 
-    private static void extractElectronResources(Path targetDir, String osDir) throws IOException {
-        java.net.URL resource = VoltLauncher.class.getResource("/electron-bin/" + osDir + ".tar.gz");
-        if (resource == null) {
-            System.err.println("[Launcher] /electron-bin/" + osDir + ".tar.gz not found in resources! Was the UI built correctly?");
-            return;
-        }
-
-        Files.createDirectories(targetDir);
-        Path tarPath = targetDir.resolve(osDir + ".tar.gz");
-
-        try (InputStream in = resource.openStream()) {
-            Files.copy(in, tarPath, StandardCopyOption.REPLACE_EXISTING);
-        }
-
-        System.out.println("[Launcher] Extracting " + tarPath + " to " + targetDir + " ...");
-        extractTarGz(tarPath, targetDir);
-        Files.deleteIfExists(tarPath);
-    }
-
-    private static void extractTarGz(Path tarGzPath, Path targetDir) throws IOException {
-        boolean isPosix = !System.getProperty("os.name", "").toLowerCase().contains("win");
-
-        try (InputStream fis = Files.newInputStream(tarGzPath);
-             BufferedInputStream bis = new BufferedInputStream(fis);
-             GzipCompressorInputStream gzis = new GzipCompressorInputStream(bis);
-             TarArchiveInputStream tais = new TarArchiveInputStream(gzis)) {
-
-            TarArchiveEntry entry;
-            while ((entry = tais.getNextEntry()) != null) {
-                Path entryPath = targetDir.resolve(entry.getName()).normalize();
-                if (!entryPath.startsWith(targetDir.normalize())) {
-                    throw new IOException("Tar entry outside target directory: " + entry.getName());
-                }
-
-                if (entry.isDirectory()) {
-                    Files.createDirectories(entryPath);
-                } else if (entry.isSymbolicLink()) {
-                    Files.createDirectories(entryPath.getParent());
-                    Files.deleteIfExists(entryPath);
-                    Files.createSymbolicLink(entryPath, Path.of(entry.getLinkName()));
-                } else {
-                    Files.createDirectories(entryPath.getParent());
-                    Files.copy(tais, entryPath, StandardCopyOption.REPLACE_EXISTING);
-
-                    if (isPosix) {
-                        int mode = entry.getMode();
-                        if ((mode & 0111) != 0) {
-                            Set<PosixFilePermission> perms = modeToPosixPermissions(mode);
-                            try { Files.setPosixFilePermissions(entryPath, perms); }
-                            catch (UnsupportedOperationException ignored) {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private static Set<PosixFilePermission> modeToPosixPermissions(int mode) {
-        Set<PosixFilePermission> perms = EnumSet.noneOf(PosixFilePermission.class);
-        if ((mode & 0400) != 0) perms.add(PosixFilePermission.OWNER_READ);
-        if ((mode & 0200) != 0) perms.add(PosixFilePermission.OWNER_WRITE);
-        if ((mode & 0100) != 0) perms.add(PosixFilePermission.OWNER_EXECUTE);
-        if ((mode & 0040) != 0) perms.add(PosixFilePermission.GROUP_READ);
-        if ((mode & 0020) != 0) perms.add(PosixFilePermission.GROUP_WRITE);
-        if ((mode & 0010) != 0) perms.add(PosixFilePermission.GROUP_EXECUTE);
-        if ((mode & 0004) != 0) perms.add(PosixFilePermission.OTHERS_READ);
-        if ((mode & 0002) != 0) perms.add(PosixFilePermission.OTHERS_WRITE);
-        if ((mode & 0001) != 0) perms.add(PosixFilePermission.OTHERS_EXECUTE);
-        return perms;
+    private static Path resolveElectronBaseDir() {
+        return ProcessHandle.current().info().command()
+            .map(cmd -> Path.of(cmd).toAbsolutePath().getParent().resolve("electron"))
+            .orElseGet(() -> AppPaths.baseDirectory().resolve("electron"));
     }
 
     private static void minimizeMainWindow() {

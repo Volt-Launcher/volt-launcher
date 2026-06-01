@@ -46,6 +46,7 @@
                 <directory>src/main/resources</directory>
                 <excludes>
                     <exclude>dist/**</exclude>
+                    <exclude>electron-bin/**</exclude>
                 </excludes>
             </resource>
             <resource>

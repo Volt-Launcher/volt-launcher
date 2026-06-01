@@ -98,18 +98,12 @@ const handleStop = async () => {
     }
 };
 
-const handleWindowAction = async (action: "minimize" | "maximize" | "close") => {
-    try {
-        const d = await apiFetch<{ success: boolean; error?: string }>(`/api/window/${action}`, { method: "POST" });
-        if (!d.success) error.value = d.error ?? `Fensteraktion "${action}" fehlgeschlagen`;
-    } catch (e) {
-        error.value = e instanceof Error ? e.message : `Fensteraktion "${action}" fehlgeschlagen`;
-    }
-};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ipcRenderer = (window as any).require?.('electron')?.ipcRenderer;
 
-const handleWindowMinimize = () => handleWindowAction("minimize");
-const handleWindowMaximize = () => handleWindowAction("maximize");
-const handleWindowClose = () => handleWindowAction("close");
+const handleWindowMinimize = () => ipcRenderer?.send('window-minimize');
+const handleWindowMaximize = () => ipcRenderer?.send('window-maximize');
+const handleWindowClose = () => ipcRenderer?.send('window-close');
 
 export function useLaunch() {
     return {
