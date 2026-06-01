@@ -87,7 +87,8 @@ public final class NeoForgeProcessorRunner {
     private void runProcessor(JSONObject proc) throws Exception {
         Path processorJar = resolveGav(proc.getString("jar"));
         String mainClass = readMainClass(processorJar);
-        boolean fatProcessorJar = proc.getString("jar").endsWith(":all");
+        String jarId = proc.getString("jar");
+        boolean fatProcessorJar = jarId.endsWith(":all") || jarId.endsWith(":fatjar");
 
         List<String> classpath = new ArrayList<>();
         classpath.add(processorJar.toAbsolutePath().toString());
@@ -126,7 +127,7 @@ public final class NeoForgeProcessorRunner {
         if (exitCode != 0) {
             throw new IllegalStateException(
                     "NeoForge processor exited with code " + exitCode
-                            + " (jar=" + proc.getString("jar") + "):\n" + output
+                            + " (jar=" + proc.getString("jar") + ", java=" + javaExecutable + "):\n" + output
             );
         }
     }

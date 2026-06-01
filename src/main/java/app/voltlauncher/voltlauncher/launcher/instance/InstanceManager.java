@@ -78,6 +78,37 @@ public final class InstanceManager {
         });
     }
 
+    public Instance renameInstance(String name, String newName) throws Exception {
+        String normalizedOld = normalizeName(name);
+        String normalizedNew = normalizeName(newName);
+        validateName(normalizedNew);
+        return lock.withLock(STORE_KEY, () -> {
+            try {
+                List<Instance> instances = listInstances();
+                if (instances.stream().noneMatch(i -> i.name().equalsIgnoreCase(normalizedOld))) {
+                    throw new IllegalStateException("Instance not found: " + normalizedOld);
+                }
+                if (instances.stream().anyMatch(i -> !i.name().equalsIgnoreCase(normalizedOld) && i.name().equalsIgnoreCase(normalizedNew))) {
+                    throw new IllegalStateException("An instance with this name already exists");
+                }
+                List<Instance> updated = new ArrayList<>(instances.size());
+                Instance renamed = null;
+                for (Instance i : instances) {
+                    if (i.name().equalsIgnoreCase(normalizedOld)) {
+                        renamed = new Instance(normalizedNew, i.slug(), i.versionId(), i.versionType(), i.createdAt(), i.lastPlayedAt(), i.javaMajorVersion(), i.javaComponent());
+                        updated.add(renamed);
+                    } else {
+                        updated.add(i);
+                    }
+                }
+                store.saveInstances(updated);
+                return renamed;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
     public void markPlayed(Instance launched, long startedAt) throws Exception {
         lock.withLock(STORE_KEY, () -> {
             try {
@@ -157,14 +188,22 @@ public final class InstanceManager {
         if (id == null || id.isBlank()) {
             return 8;
         }
-        if (id.startsWith("25w") || id.startsWith("26.")) {
+        // Strip platform prefix: "neoforge:26.1.2:loader" → "26.1.2"
+        String base = id;
+        int firstColon = id.indexOf(':');
+        if (firstColon >= 0) {
+            String afterFirst = id.substring(firstColon + 1);
+            int secondColon = afterFirst.indexOf(':');
+            base = secondColon >= 0 ? afterFirst.substring(0, secondColon) : afterFirst;
+        }
+        if (base.startsWith("25w") || base.startsWith("26.")) {
             return 21;
         }
-        if (id.startsWith("1.21") || id.startsWith("1.20") || id.startsWith("1.19")
-        || id.startsWith("1.18") || id.startsWith("24w")) {
+        if (base.startsWith("1.21") || base.startsWith("1.20") || base.startsWith("1.19")
+        || base.startsWith("1.18") || base.startsWith("24w")) {
             return 17;
         }
-        if (id.startsWith("1.17") || id.startsWith("21w")) {
+        if (base.startsWith("1.17") || base.startsWith("21w")) {
             return 16;
         }
         return 8;

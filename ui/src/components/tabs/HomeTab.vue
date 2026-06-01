@@ -11,6 +11,7 @@ const {
   selectedInstance,
   playerSkinTextureUrl,
   formatRelativeDate,
+  formatLoaderId,
   handleLogin,
   handleLaunch,
   handleStop,
@@ -97,7 +98,7 @@ const newsItems = [
 
           <div v-if="selectedInstance" class="mt-0.5 flex flex-wrap gap-3 text-[length:var(--text-xs)] text-white/50  rounded-xl border border-white/8 bg-[var(--surface-panel-strong)] px-4 py-3 backdrop-blur-xl">
             <span v-if="selectedInstance" class="inline-flex items-center gap-1">
-              <Icon icon="lucide:layers" class="size-[11px]" />{{ selectedInstance?.versionId || "Version unbekannt" }}
+              <Icon icon="lucide:layers" class="size-[11px]" />{{ selectedInstance ? formatLoaderId(selectedInstance.versionId) : "Version unbekannt" }}
             </span>
             <span v-if="selectedInstance" class="inline-flex items-center gap-1">
               <Icon icon="lucide:cpu" class="size-[11px]" />Java {{ selectedInstance?.javaMajorVersion || "N/A" }}

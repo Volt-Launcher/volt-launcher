@@ -57,6 +57,9 @@ public class RestServer {
         this.routeManager.register(new PostInstanceLaunch(this.minecraftLauncher, this.msAuth));
         this.routeManager.register(new GetInstanceLaunchStatus(this.minecraftLauncher));
         this.routeManager.register(new PostInstanceStop(this.minecraftLauncher));
+        this.routeManager.register(new DeleteInstance(this.minecraftLauncher));
+        this.routeManager.register(new PatchInstance(this.minecraftLauncher));
+        this.routeManager.register(new PostInstanceOpenFolder(this.minecraftLauncher));
         this.routeManager.register(new GetLogin(this.msAuth, this.openUrlAction));
         this.routeManager.register(new PostAuthCallback(this.msAuth));
         this.routeManager.register(new PostLogout(this.msAuth));

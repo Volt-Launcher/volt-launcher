@@ -23,6 +23,7 @@ const {
   selectedVersion,
   formatVersionType,
   formatReleaseTime,
+  formatLoaderId,
   handleCreateInstance,
 } = useLauncher();
 
@@ -33,7 +34,7 @@ const minecraftVersionOptions = computed(() => availableMinecraftVersions.value.
 
 const loaderVersionOptions = computed(() => loaderVersions.value.map((version) => ({
   value: version.id,
-  label: `${version.id} — ${formatVersionType(version.type)}`,
+  label: formatLoaderId(version.id),
 })));
 </script>
 <template>

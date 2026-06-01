@@ -1,6 +1,7 @@
 package app.voltlauncher.voltlauncher.launcher;
 
 import app.voltlauncher.voltlauncher.launcher.instance.Instance;
+import app.voltlauncher.voltlauncher.launcher.java.JavaRuntimeResolver;
 import app.voltlauncher.voltlauncher.launcher.platform.version.resolver.VanillaVersionResolver;
 import app.voltlauncher.voltlauncher.launcher.platform.version.runner.NeoForgeProcessorRunner;
 import app.voltlauncher.voltlauncher.util.HttpFetcher;
@@ -26,10 +27,12 @@ public final class AssetInstaller {
     private static final int ASSET_CONCURRENCY = 16;
     private final HttpFetcher http;
     private final VanillaVersionResolver versionResolver;
+    private final JavaRuntimeResolver javaResolver;
 
-    public AssetInstaller(HttpFetcher http, VanillaVersionResolver versionResolver) {
+    public AssetInstaller(HttpFetcher http, VanillaVersionResolver versionResolver, JavaRuntimeResolver javaResolver) {
         this.http = http;
         this.versionResolver = versionResolver;
+        this.javaResolver = javaResolver;
     }
 
     public Installation ensureInstallation(Instance instance, JSONObject meta) throws Exception {
@@ -88,8 +91,8 @@ public final class AssetInstaller {
             JSONObject installProfile = meta.getJSONObject("voltInstallProfile");
             Path installerJar = Path.of(meta.getString("voltInstallerPath"));
             downloadInstallProfileLibraries(installProfile, libsDir, nativesDir);
-            String javaExec = ProcessHandle.current().info().command().orElse("java");
-            NeoForgeProcessorRunner processorRunner = new NeoForgeProcessorRunner(installProfile, installerJar, libsDir, clientJar, javaExec);
+            JavaRuntimeResolver.JavaRuntime javaRuntime = javaResolver.resolveRuntime(instance.javaMajorVersion());
+            NeoForgeProcessorRunner processorRunner = new NeoForgeProcessorRunner(installProfile, installerJar, libsDir, clientJar, javaRuntime.javaExecutable().toString());
             processorRunner.runIfNeeded();
         }
 

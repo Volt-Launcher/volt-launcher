@@ -46,10 +46,10 @@ public final class MinecraftLauncherService {
         this.versionResolver = new VanillaVersionResolver(http);
         this.platformRegistry = PlatformRegistry.withDefaults(versionResolver);
         this.defaultPlatform = platformRegistry.requireDefault();
-        this.assetInstaller = new AssetInstaller(http, versionResolver);
+        this.javaResolver = new JavaRuntimeResolver();
+        this.assetInstaller = new AssetInstaller(http, versionResolver, this.javaResolver);
         this.instanceManager = new InstanceManager(new LauncherInstanceStore(), versionResolver);
         this.commandBuilder = new LaunchCommandBuilder(launcherClientId);
-        this.javaResolver = new JavaRuntimeResolver();
         this.processRegistry = new ProcessRegistry((key, unused) -> {
             RunningInstance ended = runningMeta.remove(key);
             LaunchState previous = launchStates.get(key);
@@ -204,6 +204,27 @@ public final class MinecraftLauncherService {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    public void deleteInstance(String name) throws Exception {
+        if (processRegistry.isAlive(instanceKey(name))) {
+            throw new IllegalStateException("Instance is currently running. Stop it before deleting.");
+        }
+        instanceManager.removeInstance(name);
+        launchStates.remove(instanceKey(name));
+        runningMeta.remove(instanceKey(name));
+    }
+
+    public Instance renameInstance(String name, String newName) throws Exception {
+        if (processRegistry.isAlive(instanceKey(name))) {
+            throw new IllegalStateException("Instance is currently running. Stop it before renaming.");
+        }
+        return instanceManager.renameInstance(name, newName);
+    }
+
+    public java.nio.file.Path getInstanceFolder(String name) throws Exception {
+        Instance instance = instanceManager.findByName(name);
+        return instance.gameDirectory();
     }
 
     public void stopAllRunningInstances() {
