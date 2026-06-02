@@ -34,6 +34,7 @@ public final class MinecraftLauncherService {
     private final PlatformRegistry platformRegistry;
     private final IPlatform defaultPlatform;
     private final AssetInstaller assetInstaller;
+    private final ModrinthPackInstaller modrinthInstaller;
     private final LaunchCommandBuilder commandBuilder;
     private final JavaRuntimeResolver javaResolver;
     private final ProcessRegistry processRegistry;
@@ -48,6 +49,7 @@ public final class MinecraftLauncherService {
         this.defaultPlatform = platformRegistry.requireDefault();
         this.javaResolver = new JavaRuntimeResolver();
         this.assetInstaller = new AssetInstaller(http, versionResolver, this.javaResolver);
+        this.modrinthInstaller = new ModrinthPackInstaller(http);
         this.instanceManager = new InstanceManager(new LauncherInstanceStore(), versionResolver);
         this.commandBuilder = new LaunchCommandBuilder(launcherClientId);
         this.processRegistry = new ProcessRegistry((key, unused) -> {
@@ -68,6 +70,23 @@ public final class MinecraftLauncherService {
 
     public List < Instance> listInstances() throws Exception {
         return instanceManager.listInstances();
+    }
+
+    public Instance installModrinthPack(String name, String modrinthVersionId) throws Exception {
+        ModrinthPackInstaller.PackInfo info = modrinthInstaller.fetchPackInfo(modrinthVersionId);
+        try {
+            Instance instance = createInstance(name.isBlank() ? info.packName() : name, info.versionId());
+            try {
+                modrinthInstaller.applyPackContents(instance, info.mrpackFile());
+            } catch (Exception e) {
+                try { instanceManager.removeInstance(instance.name()); } catch (Exception ignored) {}
+                throw e;
+            }
+            return instance;
+        } catch (Exception e) {
+            java.nio.file.Files.deleteIfExists(info.mrpackFile());
+            throw e;
+        }
     }
 
     public Instance createInstance(String name, String versionId) throws Exception {

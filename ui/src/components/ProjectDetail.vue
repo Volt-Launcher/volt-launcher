@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -8,7 +8,11 @@ import {
   formatDownloads,
   formatRelativeDate,
   type ModrinthProject,
+  type ModrinthVersion,
 } from "@/composables/useModrinth";
+import { useInstances } from "@/composables/useInstances";
+
+const API_BASE = "https://api.modrinth.com/v2";
 
 const props = defineProps<{
   slug: string;
@@ -19,6 +23,72 @@ const emit = defineEmits<{
 }>();
 
 const { project, isLoading, error, fetchProject } = useModrinthProject();
+const { handleInstallModrinthPack } = useInstances();
+
+// Install modal state
+const showInstallModal = ref(false);
+const installName = ref("");
+const selectedVersionId = ref("");
+const isInstalling = ref(false);
+const installError = ref<string | null>(null);
+
+// Versions for the install modal (top-level refs to avoid nested reactivity issues)
+const packVersions = ref<ModrinthVersion[]>([]);
+const packVersionsLoading = ref(false);
+const packVersionsError = ref<string | null>(null);
+
+async function loadPackVersions(projectId: string) {
+  packVersions.value = [];
+  packVersionsLoading.value = true;
+  packVersionsError.value = null;
+  try {
+    const res = await fetch(`${API_BASE}/project/${encodeURIComponent(projectId)}/version`, {
+      headers: { "User-Agent": "Volt-Launcher/volt-launcher" },
+    });
+    if (!res.ok) throw new Error(`Modrinth API returned ${res.status}`);
+    packVersions.value = await res.json();
+  } catch (e: unknown) {
+    packVersionsError.value = e instanceof Error ? e.message : "Failed to load versions";
+  } finally {
+    packVersionsLoading.value = false;
+  }
+}
+
+function openInstallModal() {
+  installName.value = project.value?.title ?? "";
+  selectedVersionId.value = "";
+  installError.value = null;
+  isInstalling.value = false;
+  showInstallModal.value = true;
+  if (project.value) {
+    loadPackVersions(project.value.id);
+  }
+}
+
+async function confirmInstall() {
+  if (!selectedVersionId.value) { installError.value = "Please select a version"; return; }
+  installError.value = null;
+  isInstalling.value = true;
+  try {
+    const result = await handleInstallModrinthPack(selectedVersionId.value, installName.value);
+    if (result) {
+      showInstallModal.value = false;
+    } else {
+      installError.value = "Installation failed. Check the profiles tab for details.";
+    }
+  } catch (e: unknown) {
+    installError.value = e instanceof Error ? e.message : "Installation failed";
+  } finally {
+    isInstalling.value = false;
+  }
+}
+
+const versionOptions = computed(() =>
+  packVersions.value.map((v) => ({
+    value: v.id,
+    label: `${v.name} (${v.game_versions.join(", ")}) — ${v.version_type}`,
+  }))
+);
 
 watch(
   () => props.slug,
@@ -160,8 +230,9 @@ function openExternal(url: string) {
                 <Icon icon="lucide:external-link" class="size-[13px]" />
                 Modrinth
               </button>
-              <button type="button"
-                class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg)] px-4 py-[7px] text-[length:var(--text-sm)] font-bold tracking-[0.05em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] hover:shadow-[var(--shadow-accent-md)]">
+              <button v-if="project.project_type === 'modpack'" type="button"
+                class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg)] px-4 py-[7px] text-[length:var(--text-sm)] font-bold tracking-[0.05em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] hover:shadow-[var(--shadow-accent-md)]"
+                @click="openInstallModal">
                 <Icon icon="lucide:download" class="size-[13px]" />
                 Install
               </button>
@@ -267,6 +338,92 @@ function openExternal(url: string) {
       </aside>
     </div>
   </div>
+
+  <!-- Install modal -->
+  <Teleport to="body">
+    <div
+      v-if="showInstallModal"
+      class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-5 backdrop-blur-md"
+      @click.self="showInstallModal = false"
+    >
+      <div class="w-full max-w-[480px] rounded-[14px] border border-[var(--accent-border)] bg-[var(--surface-panel-strong)] shadow-[var(--shadow-modal)]">
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-white/7 px-5 py-4">
+          <div class="flex items-center gap-2.5">
+            <img v-if="project?.icon_url" :src="project.icon_url" class="size-6 rounded-md object-cover" />
+            <span class="text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">MODPACK INSTALLIEREN</span>
+          </div>
+          <button
+            type="button"
+            class="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all duration-200 hover:bg-white/10 hover:text-white"
+            @click="showInstallModal = false"
+          >
+            <Icon icon="lucide:x" class="size-[14px]" />
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="flex flex-col gap-4 p-5">
+          <!-- Profile name -->
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">PROFILNAME</label>
+            <input
+              v-model="installName"
+              type="text"
+              placeholder="Profilname…"
+              class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-[13px] py-2.5 text-[length:var(--text-md)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]"
+              :disabled="isInstalling"
+              @keyup.enter="confirmInstall"
+            />
+          </div>
+
+          <!-- Version -->
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">VERSION</label>
+            <VoltSelect
+              v-model="selectedVersionId"
+              :options="versionOptions"
+              placeholder="Version wählen"
+              :disabled="isInstalling || packVersionsLoading || !!packVersionsError"
+            />
+            <div class="mt-0.5 text-[length:var(--text-2xs)] text-white/40">
+              <span v-if="packVersionsLoading" class="flex items-center gap-1.5">
+                <Icon icon="lucide:loader-2" class="size-[11px] animate-spin" /> Lade Versionen…
+              </span>
+              <span v-else-if="packVersionsError" class="text-[var(--danger-text)]">{{ packVersionsError }}</span>
+              <span v-else>{{ packVersions.length }} Versionen verfügbar</span>
+            </div>
+          </div>
+
+          <!-- Error -->
+          <div v-if="installError" class="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2.5 text-[length:var(--text-base)] text-[var(--danger-text)]">
+            {{ installError }}
+          </div>
+
+          <!-- Actions -->
+          <div class="mt-1 flex justify-end gap-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all duration-200 hover:bg-white/10"
+              :disabled="isInstalling"
+              @click="showInstallModal = false"
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)] hover:shadow-[var(--shadow-accent-md)] disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="isInstalling || !selectedVersionId || !installName.trim()"
+              @click="confirmInstall"
+            >
+              <Icon v-if="isInstalling" icon="lucide:loader-2" class="size-[13px] animate-spin" />
+              {{ isInstalling ? "Installiere…" : "Installieren" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>

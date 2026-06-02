@@ -398,6 +398,57 @@ export function useModrinth(opts: UseModrinthOptions) {
   };
 }
 
+// ── Modpack version types ─────────────────────────────────────────────────────
+
+export interface ModrinthVersionFile {
+  hashes: { sha1: string; sha512: string };
+  url: string;
+  filename: string;
+  primary: boolean;
+  size: number;
+}
+
+export interface ModrinthVersion {
+  id: string;
+  project_id: string;
+  name: string;
+  version_number: string;
+  changelog: string | null;
+  game_versions: string[];
+  version_type: "release" | "beta" | "alpha";
+  loaders: string[];
+  files: ModrinthVersionFile[];
+  date_published: string;
+  downloads: number;
+}
+
+export function useModrinthVersions(projectId: string) {
+  const versions = ref<ModrinthVersion[]>([]);
+  const isLoading = ref(false);
+  const error = ref<string | null>(null);
+
+  async function fetchVersions() {
+    versions.value = [];
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const res = await fetch(`${API_BASE}/project/${encodeURIComponent(projectId)}/version`, {
+        headers: { "User-Agent": "Volt-Launcher/volt-launcher" },
+      });
+      if (!res.ok) throw new Error(`Modrinth API returned ${res.status}`);
+      versions.value = await res.json();
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : "Failed to load versions";
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  fetchVersions();
+
+  return { versions, isLoading, error };
+}
+
 // ── Single project detail composable ─────────────────────────────────────────
 
 export function useModrinthProject() {

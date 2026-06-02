@@ -54,7 +54,7 @@ public final class HttpFetcher {
         if (expected == null || expected.isBlank()) {
             return Files.exists(path);
         }
-        String algo = expected.length() == 64 ? "SHA-256" : "SHA-1";
+        String algo = expected.length() == 128 ? "SHA-512" : expected.length() == 64 ? "SHA-256" : "SHA-1";
         MessageDigest digest = MessageDigest.getInstance(algo);
         try (InputStream in = Files.newInputStream(path)) {
             byte[] buf = new byte[65_536];

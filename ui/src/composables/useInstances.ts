@@ -224,6 +224,37 @@ const handleRenameInstance = async (name: string, newName: string) => {
     }
 };
 
+const handleInstallModrinthPack = async (modrinthVersionId: string, name: string) => {
+    const pendingId = `modrinth-${modrinthVersionId}-${Date.now()}`;
+    const displayName = name.trim() || "Modpack";
+    pendingInstances.value.push({ id: pendingId, name: displayName, versionId: modrinthVersionId, platformId: "fabric", failed: false });
+
+    try {
+        isCreatingInstance.value = true;
+        const d = await apiFetch<{ success: boolean; instance?: LauncherInstance; error?: string }>("/api/instances/from-modrinth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name.trim(), modrinthVersionId }),
+        });
+        if (!d.success || !d.instance) {
+            const idx = pendingInstances.value.findIndex(p => p.id === pendingId);
+            if (idx !== -1) pendingInstances.value[idx] = { ...pendingInstances.value[idx], failed: true, errorMessage: d.error ?? "Installation fehlgeschlagen" };
+            return null;
+        }
+        launcherMessage.value = `Modpack "${d.instance.name}" erfolgreich installiert.`;
+        pendingInstances.value = pendingInstances.value.filter(p => p.id !== pendingId);
+        await loadInstances();
+        selectedInstanceName.value = d.instance.name;
+        return d.instance;
+    } catch (e) {
+        const idx = pendingInstances.value.findIndex(p => p.id === pendingId);
+        if (idx !== -1) pendingInstances.value[idx] = { ...pendingInstances.value[idx], failed: true, errorMessage: e instanceof Error ? e.message : "Installation fehlgeschlagen" };
+        return null;
+    } finally {
+        isCreatingInstance.value = false;
+    }
+};
+
 const handleOpenInstanceFolder = async (name: string) => {
     try {
         const d = await apiFetch<{ success: boolean; error?: string }>(
@@ -279,6 +310,6 @@ export function useInstances() {
         selectedInstance, runningInstancesCount, requiresLoaderSelection,
         selectedVersion, filteredInstances,
         loadInstances, loadVersions, loadLoaderVersions,
-        handleCreateInstance, handleDeleteInstance, handleRenameInstance, handleOpenInstanceFolder,
+        handleCreateInstance, handleDeleteInstance, handleRenameInstance, handleOpenInstanceFolder, handleInstallModrinthPack,
     };
 }

@@ -54,6 +54,7 @@ public class RestServer {
         this.routeManager.register(new GetInstancesVersions(this.minecraftLauncher));
         this.routeManager.register(new GetInstanceLoaderVersions(this.minecraftLauncher));
         this.routeManager.register(new PostInstances(this.minecraftLauncher));
+        this.routeManager.register(new PostModrinthInstall(this.minecraftLauncher));
         this.routeManager.register(new PostInstanceLaunch(this.minecraftLauncher, this.msAuth));
         this.routeManager.register(new GetInstanceLaunchStatus(this.minecraftLauncher));
         this.routeManager.register(new PostInstanceStop(this.minecraftLauncher));
