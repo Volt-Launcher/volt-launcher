@@ -67,7 +67,7 @@ function createWindow() {
           const errorDesc = urlObj.searchParams.get('error_description');
 
           // Send callback to Java backend
-          fetch('http://localhost:7070/api/auth/callback', {
+          fetch('http://localhost:45938/api/auth/callback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

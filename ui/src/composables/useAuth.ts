@@ -1,9 +1,10 @@
 import { computed, ref } from "vue";
 import { apiFetch, APP_API_BASE } from "./api";
 import { error, launcherMessage } from "./state";
-import type { AuthData } from "./types";
+import type { AccountEntry, AuthData } from "./types";
 
 const authData = ref<AuthData | null>(null);
+const accounts = ref<AccountEntry[]>([]);
 const isAuthenticating = ref(false);
 
 let authState = "";
@@ -34,6 +35,11 @@ export const stopAuth = () => {
     authState = "";
 };
 
+const cancelLogin = () => {
+    stopAuth();
+    isAuthenticating.value = false;
+};
+
 const pollAuthStatus = async () => {
     if (!authState) return;
     try {
@@ -46,6 +52,7 @@ const pollAuthStatus = async () => {
         if (d.status === "success" && d.uuid && d.username) {
             authData.value = { uuid: d.uuid, username: d.username };
             error.value = null;
+            await loadAllAccounts();
         } else {
             error.value = d.error ?? "Authentifizierung fehlgeschlagen";
         }
@@ -79,6 +86,7 @@ const handleLogin = async () => {
 const handleLogout = async () => {
     try { await fetch(`${APP_API_BASE}/api/auth/logout`, { method: "POST" }); } catch { /* ignore */ }
     authData.value = null;
+    accounts.value = [];
     error.value = null;
     launcherMessage.value = null;
 };
@@ -91,6 +99,7 @@ const loadSession = async () => {
         }>("/api/session");
         if (d.authenticated && d.uuid && d.username) {
             authData.value = { uuid: d.uuid, username: d.username };
+            await loadAllAccounts();
             return;
         }
         authData.value = null;
@@ -101,11 +110,57 @@ const loadSession = async () => {
     }
 };
 
+const loadAllAccounts = async () => {
+    try {
+        const d = await apiFetch<{
+            success: boolean;
+            accounts?: AccountEntry[];
+            error?: string;
+        }>("/api/accounts");
+        if (d.success && d.accounts) {
+            accounts.value = d.accounts;
+            const selected = d.accounts.find(a => a.selected);
+            if (selected) authData.value = { uuid: selected.uuid, username: selected.username };
+        }
+    } catch { /* ignore */ }
+};
+
+const switchAccount = async (uuid: string) => {
+    try {
+        const d = await apiFetch<{ success: boolean; error?: string }>(
+            `/api/accounts/${encodeURIComponent(uuid)}/select`,
+            { method: "POST" }
+        );
+        if (!d.success) { error.value = d.error ?? "Konto konnte nicht gewechselt werden"; return; }
+        await loadAllAccounts();
+        launcherMessage.value = null;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Konto konnte nicht gewechselt werden";
+    }
+};
+
+const removeAccount = async (uuid: string) => {
+    try {
+        const d = await apiFetch<{ success: boolean; error?: string }>(
+            `/api/accounts/${encodeURIComponent(uuid)}`,
+            { method: "DELETE" }
+        );
+        if (!d.success) { error.value = d.error ?? "Konto konnte nicht entfernt werden"; return; }
+        await loadAllAccounts();
+        const selected = accounts.value.find(a => a.selected);
+        if (!selected) { authData.value = null; }
+        launcherMessage.value = null;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Konto konnte nicht entfernt werden";
+    }
+};
+
 export function useAuth() {
     return {
-        authData, isAuthenticating,
+        authData, accounts, isAuthenticating,
         playerName, playerSkinUrl, playerSkinFallback, playerSkinTextureUrl,
         playerAvatarUrl, playerAvatarFallback,
-        handleLogin, handleLogout, loadSession, stopAuth,
+        handleLogin, handleLogout, loadSession, stopAuth, cancelLogin,
+        loadAllAccounts, switchAccount, removeAccount,
     };
 }

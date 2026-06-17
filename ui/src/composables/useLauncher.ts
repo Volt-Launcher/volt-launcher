@@ -9,7 +9,7 @@ import { useSettings } from "./useSettings";
 import { versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime, formatLoaderId, handleImgError } from "./helpers";
 
 // Re-export types and helpers so existing consumers don't need to change their imports.
-export type { AuthData, LauncherInstance, AvailableVersion, PlatformId, MainTab, JavaRuntime, LaunchPhase, LauncherNotification } from "./types";
+export type { AccountEntry, AuthData, LauncherInstance, InstanceSettings, ContentType, ContentEntry, AvailableVersion, PlatformId, MainTab, JavaRuntime, LaunchPhase, LauncherNotification } from "./types";
 export type { PendingInstance } from "./useInstances";
 export { versionEmoji, versionGradient, formatRelativeDate, formatVersionType, formatReleaseTime, formatLoaderId, handleImgError };
 

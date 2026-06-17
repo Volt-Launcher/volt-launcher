@@ -1,7 +1,7 @@
 import { computed, ref, watch, type WatchStopHandle } from "vue";
 import { apiFetch } from "./api";
 import { error, launcherMessage } from "./state";
-import type { AvailableVersion, LauncherInstance, PlatformId } from "./types";
+import type { AvailableVersion, ContentEntry, ContentType, InstanceSettings, LauncherInstance, PlatformId } from "./types";
 
 export interface PendingInstance {
     id: string;
@@ -229,29 +229,125 @@ const handleInstallModrinthPack = async (modrinthVersionId: string, name: string
     const displayName = name.trim() || "Modpack";
     pendingInstances.value.push({ id: pendingId, name: displayName, versionId: modrinthVersionId, platformId: "fabric", failed: false });
 
+    let jobId: string | null = null;
     try {
-        isCreatingInstance.value = true;
-        const d = await apiFetch<{ success: boolean; instance?: LauncherInstance; error?: string }>("/api/instances/from-modrinth", {
+        const d = await apiFetch<{ success: boolean; jobId?: string; error?: string }>("/api/instances/from-modrinth", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: name.trim(), modrinthVersionId }),
         });
-        if (!d.success || !d.instance) {
+        if (!d.success || !d.jobId) {
             const idx = pendingInstances.value.findIndex(p => p.id === pendingId);
             if (idx !== -1) pendingInstances.value[idx] = { ...pendingInstances.value[idx], failed: true, errorMessage: d.error ?? "Installation fehlgeschlagen" };
             return null;
         }
-        launcherMessage.value = `Modpack "${d.instance.name}" erfolgreich installiert.`;
-        pendingInstances.value = pendingInstances.value.filter(p => p.id !== pendingId);
-        await loadInstances();
-        selectedInstanceName.value = d.instance.name;
-        return d.instance;
+        jobId = d.jobId;
     } catch (e) {
         const idx = pendingInstances.value.findIndex(p => p.id === pendingId);
         if (idx !== -1) pendingInstances.value[idx] = { ...pendingInstances.value[idx], failed: true, errorMessage: e instanceof Error ? e.message : "Installation fehlgeschlagen" };
         return null;
-    } finally {
-        isCreatingInstance.value = false;
+    }
+
+    return new Promise<LauncherInstance | null>((resolve) => {
+        const poll = window.setInterval(async () => {
+            try {
+                const s = await apiFetch<{
+                    success: boolean; phase?: string; message?: string;
+                    instance?: LauncherInstance; error?: string;
+                }>(`/api/instances/from-modrinth/status?jobId=${encodeURIComponent(jobId!)}`);
+
+                if (!s.success || s.phase === "failed") {
+                    window.clearInterval(poll);
+                    const idx = pendingInstances.value.findIndex(p => p.id === pendingId);
+                    if (idx !== -1) pendingInstances.value[idx] = { ...pendingInstances.value[idx], failed: true, errorMessage: s.error ?? s.message ?? "Installation fehlgeschlagen" };
+                    resolve(null);
+                    return;
+                }
+                if (s.phase === "done" && s.instance) {
+                    window.clearInterval(poll);
+                    launcherMessage.value = `Modpack "${s.instance.name}" erfolgreich installiert.`;
+                    pendingInstances.value = pendingInstances.value.filter(p => p.id !== pendingId);
+                    await loadInstances();
+                    selectedInstanceName.value = s.instance.name;
+                    resolve(s.instance);
+                }
+            } catch {
+                // Keep polling on transient errors
+            }
+        }, 2000);
+    });
+};
+
+const handleUpdateInstanceSettings = async (name: string, settings: InstanceSettings): Promise<boolean> => {
+    try {
+        const d = await apiFetch<{ success: boolean; instance?: LauncherInstance; error?: string }>(
+            `/api/instances/${encodeURIComponent(name)}/settings`,
+            { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }
+        );
+        if (!d.success || !d.instance) { error.value = d.error ?? "Einstellungen konnten nicht gespeichert werden"; return false; }
+        const idx = instances.value.findIndex(i => i.name === name);
+        if (idx !== -1) instances.value[idx] = d.instance;
+        launcherMessage.value = `Einstellungen für "${name}" gespeichert.`;
+        return true;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Einstellungen konnten nicht gespeichert werden";
+        return false;
+    }
+};
+
+const loadInstanceContent = async (name: string, type: ContentType): Promise<ContentEntry[]> => {
+    try {
+        const d = await apiFetch<{ success: boolean; items?: ContentEntry[]; error?: string }>(
+            `/api/instances/${encodeURIComponent(name)}/content/${type}`
+        );
+        if (!d.success) { error.value = d.error ?? "Inhalte konnten nicht geladen werden"; return []; }
+        return d.items ?? [];
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Inhalte konnten nicht geladen werden";
+        return [];
+    }
+};
+
+const addInstanceContent = async (name: string, type: ContentType, paths: string[]): Promise<boolean> => {
+    try {
+        const d = await apiFetch<{ success: boolean; added?: ContentEntry[]; failures?: string[]; error?: string }>(
+            `/api/instances/${encodeURIComponent(name)}/content/${type}`,
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paths }) }
+        );
+        if (!d.success) { error.value = d.error ?? "Datei konnte nicht hinzugefügt werden"; return false; }
+        if (d.failures && d.failures.length > 0) error.value = d.failures.join("; ");
+        return (d.added?.length ?? 0) > 0;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Datei konnte nicht hinzugefügt werden";
+        return false;
+    }
+};
+
+const removeInstanceContent = async (name: string, type: ContentType, fileName: string): Promise<boolean> => {
+    try {
+        const d = await apiFetch<{ success: boolean; error?: string }>(
+            `/api/instances/${encodeURIComponent(name)}/content/${type}/${encodeURIComponent(fileName)}`,
+            { method: "DELETE" }
+        );
+        if (!d.success) { error.value = d.error ?? "Datei konnte nicht gelöscht werden"; return false; }
+        return true;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Datei konnte nicht gelöscht werden";
+        return false;
+    }
+};
+
+const toggleInstanceContent = async (name: string, type: ContentType, fileName: string): Promise<ContentEntry | null> => {
+    try {
+        const d = await apiFetch<{ success: boolean; item?: ContentEntry; error?: string }>(
+            `/api/instances/${encodeURIComponent(name)}/content/${type}/${encodeURIComponent(fileName)}/toggle`,
+            { method: "POST" }
+        );
+        if (!d.success || !d.item) { error.value = d.error ?? "Status konnte nicht geändert werden"; return null; }
+        return d.item;
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : "Status konnte nicht geändert werden";
+        return null;
     }
 };
 
@@ -311,5 +407,6 @@ export function useInstances() {
         selectedVersion, filteredInstances,
         loadInstances, loadVersions, loadLoaderVersions,
         handleCreateInstance, handleDeleteInstance, handleRenameInstance, handleOpenInstanceFolder, handleInstallModrinthPack,
+        handleUpdateInstanceSettings, loadInstanceContent, addInstanceContent, removeInstanceContent, toggleInstanceContent,
     };
 }

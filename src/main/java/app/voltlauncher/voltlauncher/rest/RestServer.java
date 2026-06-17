@@ -1,21 +1,21 @@
 package app.voltlauncher.voltlauncher.rest;
 
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
-import app.voltlauncher.voltlauncher.launcher.instance.Instance;
-import app.voltlauncher.voltlauncher.launcher.instance.RunningInstanceStatus;
 import app.voltlauncher.voltlauncher.launcher.platform.version.AvailableVersion;
 import app.voltlauncher.voltlauncher.rest.auth.MicrosoftAuth;
 import app.voltlauncher.voltlauncher.rest.routes.impl.*;
+import app.voltlauncher.voltlauncher.rest.routes.impl.auth.DeleteAccount;
+import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetAccounts;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetAuthStatus;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetLogin;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.GetSession;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.PostAuthCallback;
 import app.voltlauncher.voltlauncher.rest.routes.impl.auth.PostLogout;
+import app.voltlauncher.voltlauncher.rest.routes.impl.auth.PostSelectAccount;
 import app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowClose;
 import app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowMaximize;
 import app.voltlauncher.voltlauncher.rest.routes.impl.window.PostWindowMinimize;
 import io.javalin.Javalin;
-import io.javalin.http.staticfiles.Location;
 import org.json.JSONObject;
 
 public class RestServer {
@@ -60,11 +60,20 @@ public class RestServer {
         this.routeManager.register(new PostInstanceStop(this.minecraftLauncher));
         this.routeManager.register(new DeleteInstance(this.minecraftLauncher));
         this.routeManager.register(new PatchInstance(this.minecraftLauncher));
+        this.routeManager.register(new PatchInstanceSettings(this.minecraftLauncher));
         this.routeManager.register(new PostInstanceOpenFolder(this.minecraftLauncher));
+        this.routeManager.register(new GetInstanceContent(this.minecraftLauncher));
+        this.routeManager.register(new PostInstanceContent(this.minecraftLauncher));
+        this.routeManager.register(new DeleteInstanceContent(this.minecraftLauncher));
+        this.routeManager.register(new PostInstanceContentToggle(this.minecraftLauncher));
         this.routeManager.register(new GetLogin(this.msAuth, this.openUrlAction));
         this.routeManager.register(new PostAuthCallback(this.msAuth));
         this.routeManager.register(new PostLogout(this.msAuth));
         this.routeManager.register(new GetAuthStatus(this.msAuth));
+        this.routeManager.register(new GetAccounts(this.msAuth));
+        this.routeManager.register(new PostSelectAccount(this.msAuth));
+        this.routeManager.register(new DeleteAccount(this.msAuth));
+        this.routeManager.register(new GetModrinthInstallStatus(this.minecraftLauncher));
         this.routeManager.register(new PostWindowMinimize(this.minimizeWindowAction));
         this.routeManager.register(new PostWindowMaximize(this.maximizeWindowAction));
         this.routeManager.register(new PostWindowClose(this.closeWindowAction));
@@ -97,30 +106,6 @@ public class RestServer {
     public void stop() {
         minecraftLauncher.stopAllRunningInstances();
         if (app != null) { app.stop(); }
-    }
-
-    private JSONObject toInstanceJson(Instance instance) {
-        JSONObject json = new JSONObject();
-        json.put("name", instance.name());
-        json.put("slug", instance.slug());
-        json.put("versionId", instance.versionId());
-        json.put("versionType", instance.versionType());
-        json.put("createdAt", instance.createdAt());
-        json.put("lastPlayedAt", instance.lastPlayedAt());
-        json.put("javaMajorVersion", instance.javaMajorVersion());
-        json.put("javaComponent", instance.javaComponent());
-
-        RunningInstanceStatus running = minecraftLauncher.getRunningInstanceStatus(instance.name());
-        MinecraftLauncherService.LaunchState state = minecraftLauncher.getLaunchState(instance.name());
-        json.put("running", running != null && running.alive());
-        json.put("launchPhase", state.phase().name().toLowerCase());
-        if (running != null) {
-            json.put("pid", running.pid());
-            json.put("startedAt", running.startedAt());
-            json.put("javaExecutable", running.javaExecutable());
-            json.put("runningJavaMajorVersion", running.javaMajorVersion());
-        }
-        return json;
     }
 
     @FunctionalInterface

@@ -1,6 +1,8 @@
 package app.voltlauncher.voltlauncher.launcher;
 
 import app.voltlauncher.voltlauncher.auth.MinecraftAccountSession;
+import app.voltlauncher.voltlauncher.launcher.install.AssetInstaller;
+import app.voltlauncher.voltlauncher.launcher.instance.InstanceSettings;
 import app.voltlauncher.voltlauncher.launcher.java.JavaRuntimeResolver;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,29 +21,37 @@ public final class LaunchCommandBuilder {
     public List < String> build( MinecraftAccountSession session, AssetInstaller.Installation install,
     JavaRuntimeResolver.JavaRuntime runtime) {
 
-        Map < String, String> vars = buildVars(session, install);
+        InstanceSettings settings = install.instance().settings();
+        Map < String, String> vars = buildVars(session, install, settings);
         JSONObject meta = install.launchMetadata();
         boolean isLegacy = !meta.has("arguments") && meta.has("minecraftArguments");
+
+        int maxMemoryMb = settings.maxMemoryMb() != null ? settings.maxMemoryMb() : 2048;
+        Integer minMemoryMb = settings.minMemoryMb();
 
         List < String> cmd = new ArrayList <> ();
         cmd.add(runtime.javaExecutable().toString());
 
         if (isLegacy) {
-            cmd.add("-Xmx2G");
-            cmd.add("-Xms512M");
+            cmd.add("-Xmx" + maxMemoryMb + "M");
+            cmd.add("-Xms" + (minMemoryMb != null ? minMemoryMb : 512) + "M");
             cmd.add("-Djava.library.path=" + install.nativesDirectory().toAbsolutePath());
             cmd.add("-Dminecraft.launcher.brand=TheLauncherProject");
             cmd.add("-Dminecraft.launcher.version=0.1.0");
             cmd.add("-cp");
             cmd.add(install.classpath());
         } else {
-            List < String> jvmArgs = collectArgs(meta, "jvm");
-            if (jvmArgs.stream().noneMatch(a -> a.startsWith("-Xmx"))) {
-                cmd.add("-Xmx2G");
-            }
-            for (String arg : jvmArgs) {
+            // Launcher controls heap sizing — drop any -Xmx/-Xms supplied by the version metadata.
+            cmd.add("-Xmx" + maxMemoryMb + "M");
+            if (minMemoryMb != null) cmd.add("-Xms" + minMemoryMb + "M");
+            for (String arg : collectArgs(meta, "jvm")) {
+                if (arg.startsWith("-Xmx") || arg.startsWith("-Xms")) continue;
                 cmd.add(apply(arg, vars));
             }
+        }
+
+        for (String arg : extraJvmArgs(settings)) {
+            cmd.add(apply(arg, vars));
         }
 
         cmd.add(install.mainClass());
@@ -53,7 +63,17 @@ public final class LaunchCommandBuilder {
         return List.copyOf(cmd);
     }
 
-    private Map < String, String> buildVars(MinecraftAccountSession s, AssetInstaller.Installation i) {
+    private List < String> extraJvmArgs(InstanceSettings settings) {
+        List < String> args = new ArrayList <> ();
+        String custom = settings.jvmArgs();
+        if (custom == null || custom.isBlank()) return args;
+        for (String part : custom.trim().split("\\s+")) {
+            if (!part.isBlank()) args.add(part);
+        }
+        return args;
+    }
+
+    private Map < String, String> buildVars(MinecraftAccountSession s, AssetInstaller.Installation i, InstanceSettings settings) {
         Map < String, String> v = new HashMap <> ();
         v.put("auth_player_name", s.username());
         v.put("version_name", i.launchVersionId());
@@ -74,8 +94,8 @@ public final class LaunchCommandBuilder {
         v.put("classpath", i.classpath());
         v.put("classpath_separator", File.pathSeparator);
         v.put("library_directory", i.librariesDirectory().toString());
-        v.put("resolution_width", "1280");
-        v.put("resolution_height", "720");
+        v.put("resolution_width", String.valueOf(settings.resolutionWidth() != null ? settings.resolutionWidth() : 1280));
+        v.put("resolution_height", String.valueOf(settings.resolutionHeight() != null ? settings.resolutionHeight() : 720));
         v.put("game_assets", i.assetsDirectory().resolve("virtual").resolve(i.assetIndexId()).toString());
         if (i.loggingConfigPath() != null) {
             v.put("path", i.loggingConfigPath().toString());

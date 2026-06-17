@@ -2,6 +2,7 @@ package app.voltlauncher.voltlauncher.rest.util;
 
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.launcher.instance.Instance;
+import app.voltlauncher.voltlauncher.launcher.instance.InstanceContentService;
 import app.voltlauncher.voltlauncher.launcher.instance.RunningInstanceStatus;
 import org.json.JSONObject;
 
@@ -16,6 +17,7 @@ public class InstanceHelper {
         json.put("lastPlayedAt", instance.lastPlayedAt());
         json.put("javaMajorVersion", instance.javaMajorVersion());
         json.put("javaComponent", instance.javaComponent());
+        json.put("settings", instance.settings().toJson());
 
         RunningInstanceStatus runningStatus = minecraftLauncher.getRunningInstanceStatus(instance.name());
         json.put("running", runningStatus != null && runningStatus.alive());
@@ -25,6 +27,14 @@ public class InstanceHelper {
             json.put("javaExecutable", runningStatus.javaExecutable());
             json.put("runningJavaMajorVersion", runningStatus.javaMajorVersion());
         }
+        return json;
+    }
+
+    public static JSONObject toContentJson(InstanceContentService.ContentEntry entry) {
+        JSONObject json = new JSONObject();
+        json.put("fileName", entry.fileName());
+        json.put("size", entry.size());
+        json.put("enabled", entry.enabled());
         return json;
     }
 }

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue";
 import { Icon } from "@iconify/vue";
 import { useLauncher } from '@/composables/useLauncher';
-import type { LauncherInstance } from '@/composables/useLauncher';
+import type { LauncherInstance, ContentEntry, ContentType, InstanceSettings } from '@/composables/useLauncher';
 
 const {
   authData,
@@ -26,6 +26,12 @@ const {
   handleRenameInstance,
   handleOpenInstanceFolder,
   handleLaunch,
+  handleUpdateInstanceSettings,
+  loadInstanceContent,
+  addInstanceContent,
+  removeInstanceContent,
+  toggleInstanceContent,
+  error,
 } = useLauncher();
 
 const filters = ['ALL', 'RELEASE', 'SNAPSHOT', 'NEOFORGE', 'FORGE', 'FABRIC', 'QUILT'];
@@ -99,6 +105,171 @@ function startDelete(inst: LauncherInstance) {
 function openFolder(inst: LauncherInstance) {
   void handleOpenInstanceFolder(inst.name);
   closeMenu();
+}
+
+// ── Manage view panels (content + settings) ────────────────────────────────────
+type Panel = ContentType | 'settings' | null;
+const activePanel = ref<Panel>(null);
+const contentItems = ref<ContentEntry[]>([]);
+const isLoadingContent = ref(false);
+const isDragging = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+const CONTENT_LABELS: Record<ContentType, string> = {
+  mods: 'Mods',
+  resourcepacks: 'Resource Packs',
+  shaderpacks: 'Shaders',
+  datapacks: 'Data Packs',
+};
+
+const isLoaderInstance = computed(() => {
+  const t = managingInstance.value?.versionType;
+  return t === 'fabric' || t === 'forge' || t === 'neoforge' || t === 'quilt';
+});
+
+const isContentPanel = computed(() => activePanel.value !== null && activePanel.value !== 'settings');
+const activeContentType = computed(() => (isContentPanel.value ? (activePanel.value as ContentType) : null));
+
+// Reset panels only when switching to a *different* profile, not on in-place updates.
+watch(() => managingInstance.value?.name, () => { activePanel.value = null; contentItems.value = []; });
+
+async function openPanel(panel: Panel) {
+  activePanel.value = panel;
+  if (panel === 'settings') { loadSettingsForm(); return; }
+  if (panel) await refreshContent(panel);
+}
+
+async function refreshContent(type: ContentType) {
+  if (!managingInstance.value) return;
+  isLoadingContent.value = true;
+  contentItems.value = await loadInstanceContent(managingInstance.value.name, type);
+  isLoadingContent.value = false;
+}
+
+// Electron 32+ removed File.path; the absolute path must be resolved via webUtils.
+function resolveFilePath(file: File): string | null {
+  const w = window as unknown as { require?: (m: string) => { webUtils?: { getPathForFile?: (f: File) => string } } };
+  try {
+    if (typeof w.require === 'function') {
+      const electron = w.require('electron');
+      const resolved = electron?.webUtils?.getPathForFile?.(file);
+      if (resolved) return resolved;
+    }
+  } catch { /* fall through to legacy */ }
+  const legacy = (file as unknown as { path?: string }).path;
+  return legacy && legacy.length > 0 ? legacy : null;
+}
+
+function extractPaths(files: FileList | null): string[] {
+  if (!files) return [];
+  const paths: string[] = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (!file) continue;
+    const p = resolveFilePath(file);
+    if (p) paths.push(p);
+  }
+  return paths;
+}
+
+async function applyAddedFiles(files: FileList | null) {
+  const type = activeContentType.value;
+  if (!managingInstance.value || !type) return;
+  const hadFiles = !!files && files.length > 0;
+  const paths = extractPaths(files);
+  if (paths.length === 0) {
+    if (hadFiles) error.value = "Datei-Pfad konnte nicht ermittelt werden.";
+    return;
+  }
+  const ok = await addInstanceContent(managingInstance.value.name, type, paths);
+  if (ok) await refreshContent(type);
+}
+
+async function onDrop(e: DragEvent) {
+  isDragging.value = false;
+  await applyAddedFiles(e.dataTransfer?.files ?? null);
+}
+
+async function onBrowse(e: Event) {
+  const target = e.target as HTMLInputElement;
+  const files = target.files;
+  await applyAddedFiles(files);
+  target.value = '';
+}
+
+async function onToggleContent(item: ContentEntry) {
+  const type = activeContentType.value;
+  if (!managingInstance.value || !type) return;
+  const updated = await toggleInstanceContent(managingInstance.value.name, type, item.fileName);
+  if (updated) {
+    const idx = contentItems.value.findIndex(c => c.fileName === item.fileName);
+    if (idx !== -1) contentItems.value[idx] = updated;
+  }
+}
+
+async function onDeleteContent(item: ContentEntry) {
+  const type = activeContentType.value;
+  if (!managingInstance.value || !type) return;
+  const ok = await removeInstanceContent(managingInstance.value.name, type, item.fileName);
+  if (ok) contentItems.value = contentItems.value.filter(c => c.fileName !== item.fileName);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ── Settings form ───────────────────────────────────────────────────────────────
+const settingsForm = reactive({
+  maxMemoryMb: '',
+  minMemoryMb: '',
+  jvmArgs: '',
+  resolutionWidth: '',
+  resolutionHeight: '',
+  javaPath: '',
+});
+const isSavingSettings = ref(false);
+const settingsSaved = ref(false);
+
+function loadSettingsForm() {
+  settingsSaved.value = false;
+  const s = managingInstance.value?.settings;
+  settingsForm.maxMemoryMb = s?.maxMemoryMb != null ? String(s.maxMemoryMb) : '';
+  settingsForm.minMemoryMb = s?.minMemoryMb != null ? String(s.minMemoryMb) : '';
+  settingsForm.jvmArgs = s?.jvmArgs ?? '';
+  settingsForm.resolutionWidth = s?.resolutionWidth != null ? String(s.resolutionWidth) : '';
+  settingsForm.resolutionHeight = s?.resolutionHeight != null ? String(s.resolutionHeight) : '';
+  settingsForm.javaPath = s?.javaPath ?? '';
+}
+
+function parseIntOrNull(v: string): number | null {
+  const t = v.trim();
+  if (t === '') return null;
+  const n = Number.parseInt(t, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function saveSettings() {
+  if (!managingInstance.value) return;
+  const payload: InstanceSettings = {
+    maxMemoryMb: parseIntOrNull(settingsForm.maxMemoryMb),
+    minMemoryMb: parseIntOrNull(settingsForm.minMemoryMb),
+    jvmArgs: settingsForm.jvmArgs.trim() === '' ? null : settingsForm.jvmArgs.trim(),
+    resolutionWidth: parseIntOrNull(settingsForm.resolutionWidth),
+    resolutionHeight: parseIntOrNull(settingsForm.resolutionHeight),
+    javaPath: settingsForm.javaPath.trim() === '' ? null : settingsForm.javaPath.trim(),
+  };
+  isSavingSettings.value = true;
+  const ok = await handleUpdateInstanceSettings(managingInstance.value.name, payload);
+  isSavingSettings.value = false;
+  if (ok) {
+    // Keep the panel open; sync the local snapshot so the form reflects what was stored.
+    managingInstance.value = { ...managingInstance.value, settings: payload };
+    loadSettingsForm();
+    settingsSaved.value = true;
+    window.setTimeout(() => { settingsSaved.value = false; }, 2500);
+  }
 }
 </script>
 
@@ -305,7 +476,7 @@ function openFolder(inst: LauncherInstance) {
               <div class="text-[length:var(--text-xs)] text-white/50">{{ formatLoaderId(managingInstance.versionId) }}
               </div>
             </div>
-            <!-- Play button -->
+            <!-- Play button + panel nav -->
             <div class="px-3 pb-3 flex flex-col gap-2">
               <button type="button"
                 class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border border-(--accent-border-strong) bg-(--primary) py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -313,66 +484,219 @@ function openFolder(inst: LauncherInstance) {
                 @click="playInstance(managingInstance)">
                 <Icon icon="lucide:play" class="size-[10px]" />PLAY
               </button>
-              <button
-                v-if="managingInstance.versionType === 'neoforge' || managingInstance.versionType === 'forge' || managingInstance.versionType === 'fabric' || managingInstance.versionType === 'quilt'"
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border border-(--surface-panel-strong) bg-(--surface-input) py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] text-white"
-                :disabled="false" @click="">
+              <button v-if="isLoaderInstance" type="button"
+                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] transition-all"
+                :class="activePanel === 'mods' ? 'border-(--accent-border-strong) bg-(--accent-bg-strong) text-(--primary)' : 'border-(--surface-panel-strong) bg-(--surface-input) text-white hover:bg-white/10'"
+                @click="openPanel('mods')">
                 <Icon icon="lucide:puzzle" class="size-[10px]" />Mods
               </button>
               <button type="button"
-                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border border-(--surface-panel-strong) bg-(--surface-input) py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] text-white"
-                :disabled="false" @click="">
-                <Icon icon="lucide:play" class="lucide:palette" />Resource Packs
+                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] transition-all"
+                :class="activePanel === 'resourcepacks' ? 'border-(--accent-border-strong) bg-(--accent-bg-strong) text-(--primary)' : 'border-(--surface-panel-strong) bg-(--surface-input) text-white hover:bg-white/10'"
+                @click="openPanel('resourcepacks')">
+                <Icon icon="lucide:palette" class="size-[10px]" />Resource Packs
               </button>
-              <button
-                v-if="managingInstance.versionType === 'neoforge' || managingInstance.versionType === 'forge' || managingInstance.versionType === 'fabric' || managingInstance.versionType === 'quilt'"
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border border-(--surface-panel-strong) bg-(--surface-input) py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] text-white"
-                :disabled="false" @click="">
+              <button v-if="isLoaderInstance" type="button"
+                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] transition-all"
+                :class="activePanel === 'shaderpacks' ? 'border-(--accent-border-strong) bg-(--accent-bg-strong) text-(--primary)' : 'border-(--surface-panel-strong) bg-(--surface-input) text-white hover:bg-white/10'"
+                @click="openPanel('shaderpacks')">
                 <Icon icon="lucide:sparkles" class="size-[10px]" />Shaders
               </button>
               <button type="button"
-                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border border-(--surface-panel-strong) bg-(--surface-input) py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] text-white"
-                :disabled="false" @click="">
+                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] transition-all"
+                :class="activePanel === 'datapacks' ? 'border-(--accent-border-strong) bg-(--accent-bg-strong) text-(--primary)' : 'border-(--surface-panel-strong) bg-(--surface-input) text-white hover:bg-white/10'"
+                @click="openPanel('datapacks')">
                 <Icon icon="lucide:database" class="size-[10px]" />Data Packs
+              </button>
+              <button type="button"
+                class="w-full inline-flex items-center justify-center gap-2 rounded-[7px] border py-2 text-[length:var(--text-sm)] font-bold tracking-[0.08em] transition-all"
+                :class="activePanel === 'settings' ? 'border-(--accent-border-strong) bg-(--accent-bg-strong) text-(--primary)' : 'border-(--surface-panel-strong) bg-(--surface-input) text-white hover:bg-white/10'"
+                @click="openPanel('settings')">
+                <Icon icon="lucide:sliders-horizontal" class="size-[10px]" />Settings
               </button>
             </div>
           </div>
 
-          <!-- Right: info + actions -->
-          <div class="flex flex-1 flex-col gap-4 overflow-y-auto">
-            <div class="flex gap-4">
-              <!-- Stats -->
-              <div class="rounded-xl border border-white/8 bg-[var(--surface-panel)] p-4 grow-1">
-                <div class="mb-3 text-[length:var(--text-2xs)] font-bold tracking-[0.12em] text-white/40">INFO</div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div class="flex flex-col gap-0.5">
-                    <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">VERSION</div>
-                    <div class="text-[length:var(--text-sm)] font-medium text-white">{{
-                      formatLoaderId(managingInstance.versionId) }}</div>
+          <!-- Right: profile info (always on top) + active panel -->
+          <div class="flex flex-1 flex-col gap-4 overflow-hidden">
+
+            <!-- Profile info — always visible across all sub-tabs -->
+            <div class="shrink-0 rounded-xl border border-white/8 bg-[var(--surface-panel)] p-4">
+              <div class="mb-3 text-[length:var(--text-2xs)] font-bold tracking-[0.12em] text-white/40">INFO</div>
+              <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="flex flex-col gap-0.5">
+                  <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">VERSION</div>
+                  <div class="truncate text-[length:var(--text-sm)] font-medium text-white">{{ formatLoaderId(managingInstance.versionId) }}</div>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">JAVA</div>
+                  <div class="text-[length:var(--text-sm)] font-medium text-white">Java {{ managingInstance.javaMajorVersion }}</div>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">ERSTELLT</div>
+                  <div class="text-[length:var(--text-sm)] font-medium text-white">{{ formatRelativeDate(managingInstance.createdAt) }}</div>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">ZULETZT GESPIELT</div>
+                  <div class="text-[length:var(--text-sm)] font-medium text-white">{{ formatRelativeDate(managingInstance.lastPlayedAt) }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Content panel (mods / resourcepacks / shaderpacks / datapacks) -->
+            <div v-if="isContentPanel && activeContentType"
+              class="flex flex-1 flex-col overflow-hidden rounded-xl border border-white/8 bg-[var(--surface-panel)]">
+              <div class="flex items-center justify-between border-b border-white/7 px-4 py-3">
+                <div class="flex items-center gap-2 text-[length:var(--text-sm)] font-bold tracking-[0.1em] text-white">
+                  <Icon icon="lucide:package" class="size-3.5 text-white/40" />
+                  {{ CONTENT_LABELS[activeContentType].toUpperCase() }}
+                  <span class="text-white/35 font-medium">({{ contentItems.length }})</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button type="button"
+                    class="inline-flex items-center gap-1.5 rounded-[6px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-2.5 py-1.5 text-[length:var(--text-2xs)] font-semibold tracking-[0.06em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)]"
+                    @click="fileInput?.click()">
+                    <Icon icon="lucide:plus" class="size-3" />Hinzufügen
+                  </button>
+                  <button type="button"
+                    class="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all hover:bg-white/10 hover:text-white"
+                    title="Aktualisieren" @click="refreshContent(activeContentType)">
+                    <Icon icon="lucide:refresh-cw" class="size-3" />
+                  </button>
+                </div>
+              </div>
+              <input ref="fileInput" type="file" multiple class="hidden" @change="onBrowse" />
+
+              <!-- Dropzone + list -->
+              <div class="relative flex flex-1 flex-col overflow-hidden"
+                @dragover.prevent="isDragging = true" @dragleave.prevent="isDragging = false" @drop.prevent="onDrop">
+                <div v-if="isDragging"
+                  class="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--accent-border-strong)] bg-[var(--accent-bg-soft)] backdrop-blur-sm">
+                  <Icon icon="lucide:download" class="size-7 text-[var(--primary)]" />
+                  <span class="text-[length:var(--text-sm)] font-semibold text-[var(--primary)]">Dateien hier ablegen</span>
+                </div>
+
+                <div class="flex-1 overflow-y-auto p-2.5">
+                  <div v-if="isLoadingContent" class="py-10 text-center text-[length:var(--text-sm)] text-white/40">Lädt…</div>
+                  <div v-else-if="contentItems.length === 0"
+                    class="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 text-center">
+                    <Icon icon="lucide:inbox" class="size-8 text-white/20" />
+                    <div class="text-[length:var(--text-sm)] text-white/40">Noch keine Dateien.</div>
+                    <div class="text-[length:var(--text-2xs)] text-white/25">Dateien hierher ziehen oder „Hinzufügen“ klicken.</div>
                   </div>
-                  <div class="flex flex-col gap-0.5">
-                    <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">JAVA</div>
-                    <div class="text-[length:var(--text-sm)] font-medium text-white">Java {{
-                      managingInstance.javaMajorVersion }}</div>
-                  </div>
-                  <div class="flex flex-col gap-0.5">
-                    <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">ERSTELLT</div>
-                    <div class="text-[length:var(--text-sm)] font-medium text-white">{{
-                      formatRelativeDate(managingInstance.createdAt) }}</div>
-                  </div>
-                  <div class="flex flex-col gap-0.5">
-                    <div class="text-[length:var(--text-2xs)] text-white/35 tracking-[0.08em]">ZULETZT GESPIELT</div>
-                    <div class="text-[length:var(--text-sm)] font-medium text-white">{{
-                      formatRelativeDate(managingInstance.lastPlayedAt) }}</div>
+                  <div v-else class="flex flex-col gap-1.5">
+                    <div v-for="item in contentItems" :key="item.fileName"
+                      class="group flex items-center justify-between gap-3 rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2.5"
+                      :class="!item.enabled ? 'opacity-50' : ''">
+                      <div class="flex min-w-0 items-center gap-2.5">
+                        <Icon icon="lucide:file-archive" class="size-4 shrink-0 text-white/35" />
+                        <div class="min-w-0">
+                          <div class="truncate text-[length:var(--text-sm)] font-medium text-white">{{ item.fileName }}</div>
+                          <div class="text-[length:var(--text-2xs)] text-white/35">{{ formatBytes(item.size) }}<span v-if="!item.enabled"> · deaktiviert</span></div>
+                        </div>
+                      </div>
+                      <div class="flex shrink-0 items-center gap-1.5">
+                        <button type="button"
+                          class="inline-flex items-center gap-1 rounded-[6px] border px-2 py-1 text-[length:var(--text-2xs)] font-semibold transition-all"
+                          :class="item.enabled
+                            ? 'border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--accent)]'
+                            : 'border-white/10 bg-white/5 text-white/40 hover:bg-white/10'"
+                          @click="onToggleContent(item)">
+                          <Icon :icon="item.enabled ? 'lucide:check' : 'lucide:x'" class="size-3" />
+                          {{ item.enabled ? 'Aktiv' : 'Aus' }}
+                        </button>
+                        <button type="button"
+                          class="flex size-7 items-center justify-center rounded-md border border-white/8 bg-white/[0.03] text-white/35 transition-all hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+                          title="Löschen" @click="onDeleteContent(item)">
+                          <Icon icon="lucide:trash-2" class="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <!-- Actions -->
-              <div class="rounded-xl border border-white/8 bg-[var(--surface-panel)] p-4 w-auto">
-                <div class="mb-3 text-[length:var(--text-2xs)] font-bold tracking-[0.12em] text-white/40">AKTIONEN</div>
+            <!-- Settings panel -->
+            <div v-else-if="activePanel === 'settings'"
+              class="flex flex-1 flex-col overflow-hidden rounded-xl border border-white/8 bg-[var(--surface-panel)]">
+              <div class="flex items-center justify-between border-b border-white/7 px-4 py-3">
+                <div class="flex items-center gap-2 text-[length:var(--text-sm)] font-bold tracking-[0.1em] text-white">
+                  <Icon icon="lucide:sliders-horizontal" class="size-3.5 text-white/40" />EINSTELLUNGEN
+                </div>
+                <span v-if="settingsSaved"
+                  class="inline-flex items-center gap-1 rounded-[5px] border border-[var(--success-border)] bg-[var(--success-bg)] px-2 py-0.5 text-[length:var(--text-2xs)] font-bold tracking-[0.06em] text-[var(--accent)]">
+                  <Icon icon="lucide:check" class="size-3" />Gespeichert
+                </span>
+              </div>
+              <div class="flex-1 overflow-y-auto p-4">
+                <div class="flex flex-col gap-5">
+                  <!-- Memory -->
+                  <div class="flex flex-col gap-2">
+                    <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">ARBEITSSPEICHER (MB)</label>
+                    <div class="flex gap-3">
+                      <div class="flex flex-1 flex-col gap-1">
+                        <span class="text-[length:var(--text-2xs)] text-white/35">Max (-Xmx)</span>
+                        <input v-model="settingsForm.maxMemoryMb" type="number" min="512" step="256" placeholder="2048"
+                          class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
+                      </div>
+                      <div class="flex flex-1 flex-col gap-1">
+                        <span class="text-[length:var(--text-2xs)] text-white/35">Min (-Xms)</span>
+                        <input v-model="settingsForm.minMemoryMb" type="number" min="256" step="256" placeholder="auto"
+                          class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Resolution -->
+                  <div class="flex flex-col gap-2">
+                    <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">FENSTERGRÖSSE</label>
+                    <div class="flex gap-3">
+                      <div class="flex flex-1 flex-col gap-1">
+                        <span class="text-[length:var(--text-2xs)] text-white/35">Breite</span>
+                        <input v-model="settingsForm.resolutionWidth" type="number" min="640" step="1" placeholder="1280"
+                          class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
+                      </div>
+                      <div class="flex flex-1 flex-col gap-1">
+                        <span class="text-[length:var(--text-2xs)] text-white/35">Höhe</span>
+                        <input v-model="settingsForm.resolutionHeight" type="number" min="480" step="1" placeholder="720"
+                          class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
+                      </div>
+                    </div>
+                  </div>
+                  <!-- JVM args -->
+                  <div class="flex flex-col gap-1.5">
+                    <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">ZUSÄTZLICHE JVM-ARGUMENTE</label>
+                    <input v-model="settingsForm.jvmArgs" type="text" placeholder="-XX:+UseG1GC -Dfoo=bar"
+                      class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 font-mono text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
+                  </div>
+                  <!-- Java override -->
+                  <div class="flex flex-col gap-1.5">
+                    <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">JAVA-PFAD (OPTIONAL)</label>
+                    <input v-model="settingsForm.javaPath" type="text" placeholder="Automatisch (Java {{ managingInstance.javaMajorVersion }})"
+                      class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 font-mono text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
+                    <span class="text-[length:var(--text-2xs)] text-white/30">Pfad zur java-Executable oder zum JDK-Verzeichnis. Leer = automatisch.</span>
+                  </div>
+                  <div class="flex justify-end gap-2 pt-1">
+                    <button type="button"
+                      class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all hover:bg-white/10"
+                      @click="activePanel = null">
+                      Abbrechen
+                    </button>
+                    <button type="button"
+                      class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                      :disabled="isSavingSettings" @click="saveSettings">
+                      <Icon :icon="isSavingSettings ? 'lucide:loader-2' : 'lucide:save'" class="size-[12px]" :class="isSavingSettings ? 'animate-spin' : ''" />
+                      Speichern
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Default: actions -->
+            <div v-else class="flex flex-1 flex-col overflow-hidden rounded-xl border border-white/8 bg-[var(--surface-panel)]">
+              <div class="border-b border-white/7 px-4 py-3 text-[length:var(--text-sm)] font-bold tracking-[0.1em] text-white">AKTIONEN</div>
+              <div class="flex-1 overflow-y-auto p-4">
                 <div class="flex flex-col gap-1.5">
                   <button type="button"
                     class="flex items-center gap-3 rounded-lg border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-[length:var(--text-sm)] text-white/70 transition-all hover:bg-white/8 hover:text-white"

@@ -53,6 +53,24 @@ public final class PlatformRegistry {
         return Collections.unmodifiableList(values);
     }
 
+    public IPlatform resolvePlatformForVersion(String versionId, IPlatform fallback) {
+        if (versionId == null || versionId.isBlank()) return fallback;
+        int sep = versionId.indexOf(':');
+        if (sep <= 0) return fallback;
+        String candidate = versionId.substring(0, sep).trim().toLowerCase(Locale.ROOT);
+        return get(candidate).orElse(fallback);
+    }
+
+    public static String extractBaseMinecraftVersionId(String versionId) {
+        if (versionId == null || versionId.isBlank()) return versionId;
+        String trimmed = versionId.trim();
+        int firstSep = trimmed.indexOf(':');
+        if (firstSep <= 0) return trimmed;
+        String rest = trimmed.substring(firstSep + 1);
+        int secondSep = rest.indexOf(':');
+        return secondSep >= 0 ? rest.substring(0, secondSep).trim() : rest.trim();
+    }
+
     private String normalize(String id) {
         return Objects.requireNonNull(id, "id").trim().toLowerCase(Locale.ROOT);
     }

@@ -1,5 +1,6 @@
 package app.voltlauncher.voltlauncher.rest.routes.impl;
 
+import app.voltlauncher.voltlauncher.launcher.InstanceLauncher;
 import app.voltlauncher.voltlauncher.launcher.MinecraftLauncherService;
 import app.voltlauncher.voltlauncher.launcher.instance.LaunchResult;
 import app.voltlauncher.voltlauncher.rest.routes.IRoute;
@@ -20,7 +21,7 @@ public class GetInstanceLaunchStatus implements IRoute {
     @Override
     public void execute(Context ctx) {
         String instanceName = ctx.pathParam("name");
-        MinecraftLauncherService.LaunchState state = minecraftLauncher.getLaunchState(instanceName);
+        InstanceLauncher.LaunchState state = minecraftLauncher.getLaunchState(instanceName);
         JSONObject json = new JSONObject();
         json.put("success", true);
         json.put("phase", state.phase().name().toLowerCase());

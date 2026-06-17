@@ -2,6 +2,7 @@ package app.voltlauncher.voltlauncher.storage;
 
 import app.voltlauncher.voltlauncher.AppPaths;
 import app.voltlauncher.voltlauncher.launcher.instance.Instance;
+import app.voltlauncher.voltlauncher.launcher.instance.InstanceSettings;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -31,7 +32,7 @@ public class LauncherInstanceStore {
         List < Instance> result = new ArrayList <> ();
         for (int i = 0; i < instances.length(); i++) {
             JSONObject instance = instances.getJSONObject(i);
-            result.add(new Instance( instance.getString("name"), instance.getString("slug"), instance.getString("versionId"), instance.optString("versionType", "release"), instance.getLong("createdAt"), instance.optLong("lastPlayedAt", 0L), instance.optInt("javaMajorVersion", 0), instance.optString("javaComponent", "")));
+            result.add(new Instance( instance.getString("name"), instance.getString("slug"), instance.getString("versionId"), instance.optString("versionType", "release"), instance.getLong("createdAt"), instance.optLong("lastPlayedAt", 0L), instance.optInt("javaMajorVersion", 0), instance.optString("javaComponent", ""), InstanceSettings.fromJson(instance.optJSONObject("settings"))));
         }
 
         result.sort(Comparator .comparingLong((Instance instance) -> instance.lastPlayedAt() > 0 ? instance.lastPlayedAt() : instance.createdAt()) .reversed() .thenComparing(Instance::name, String.CASE_INSENSITIVE_ORDER));
@@ -58,6 +59,7 @@ public class LauncherInstanceStore {
             json.put("lastPlayedAt", instance.lastPlayedAt());
             json.put("javaMajorVersion", instance.javaMajorVersion());
             json.put("javaComponent", instance.javaComponent());
+            json.put("settings", instance.settings().toJson());
             array.put(json);
         }
 

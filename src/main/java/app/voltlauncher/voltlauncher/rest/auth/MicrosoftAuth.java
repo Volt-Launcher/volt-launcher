@@ -4,6 +4,7 @@ import app.voltlauncher.voltlauncher.auth.*;
 import app.voltlauncher.voltlauncher.storage.EncryptedAccountStore;
 import app.voltlauncher.voltlauncher.util.HttpFetcher;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -12,12 +13,14 @@ public class MicrosoftAuth {
     private static final String CLIENT_ID = "00000000402b5328";
     private final OAuthClient oauthClient;
     private final SessionManager sessionManager;
-    private final ConcurrentHashMap < String, PendingAuth> pendingStates = new ConcurrentHashMap <> ();
+    private final ConcurrentHashMap<String, PendingAuth> pendingStates = new ConcurrentHashMap<>();
 
     public MicrosoftAuth() throws Exception {
         HttpFetcher http = new HttpFetcher();
         this.oauthClient = new OAuthClient(CLIENT_ID, http);
-        this.sessionManager = new SessionManager( oauthClient, new XboxAuthClient(http), new MinecraftAuthClient(http), new EncryptedAccountStore());
+        this.sessionManager = new SessionManager(
+                oauthClient, new XboxAuthClient(http), new MinecraftAuthClient(http),
+                new EncryptedAccountStore());
     }
 
     public String getClientId() {
@@ -66,6 +69,22 @@ public class MicrosoftAuth {
 
     public AuthResult getStoredSessionSummary() throws Exception {
         return sessionManager.getStoredSummary();
+    }
+
+    public List<AuthResult> listAllAccounts() throws Exception {
+        return sessionManager.listAllAccounts();
+    }
+
+    public String getSelectedUuid() throws Exception {
+        return sessionManager.getSelectedUuid();
+    }
+
+    public void switchAccount(String uuid) throws Exception {
+        sessionManager.switchAccount(uuid);
+    }
+
+    public void removeAccount(String uuid) throws Exception {
+        sessionManager.removeAccount(uuid);
     }
 
     public MinecraftAccountSession getLaunchSession() throws Exception {
