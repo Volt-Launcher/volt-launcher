@@ -41,6 +41,34 @@ export class CurseForgeError extends Error {
 }
 
 /**
+ * Turns an upstream status into something actionable. CurseForge answers with a bare 403 for
+ * several unrelated problems, so the likely causes are spelled out rather than passed through.
+ */
+function describeFailure(status, detail) {
+  const trimmed = (detail ?? '').trim().slice(0, 300);
+  const suffix = trimmed ? ` Response: ${trimmed}` : '';
+
+  if (status === 403) {
+    return (
+      'CurseForge rejected the request (403). Usual causes, in order of likelihood: ' +
+      '1) the key is not being read — check that "npm start" reports a key was loaded, since ' +
+      'bridge/.env is only picked up by the npm scripts; ' +
+      '2) the key was pasted with surrounding quotes or a stray line break; ' +
+      '3) the key is for a different CurseForge account or was revoked at ' +
+      'https://console.curseforge.com.' +
+      suffix
+    );
+  }
+  if (status === 401) {
+    return `CurseForge did not accept the API key (401). Re-issue it at https://console.curseforge.com.${suffix}`;
+  }
+  if (status === 429) {
+    return `CurseForge rate limit reached (429). Wait a moment before retrying.${suffix}`;
+  }
+  return `CurseForge responded with ${status}.${suffix}`;
+}
+
+/**
  * Performs a request against the CurseForge API.
  *
  * @param {string} path  path beginning with a slash, e.g. `/v1/mods/search?gameId=432`
@@ -72,6 +100,9 @@ export async function callCurseForge(path, options = {}) {
       headers: {
         'x-api-key': config.apiKey,
         Accept: 'application/json',
+        // Node's fetch defaults to `User-Agent: node`, which the CDN in front of
+        // api.curseforge.com rejects with 403 no matter how valid the key is.
+        'User-Agent': config.userAgent,
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -80,10 +111,7 @@ export async function callCurseForge(path, options = {}) {
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
-      throw new CurseForgeError(
-        `CurseForge responded with ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`,
-        response.status,
-      );
+      throw new CurseForgeError(describeFailure(response.status, detail), response.status);
     }
 
     const payload = await response.json();

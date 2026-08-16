@@ -2,9 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
 
-import { config, hasApiKey } from './config.js';
+import { apiKeyFingerprint, config, hasApiKey } from './config.js';
 import { createRouter } from './routes.js';
-import { CurseForgeError } from './curseforge.js';
+import { checkApiKey, CurseForgeError } from './curseforge.js';
 
 const app = express();
 
@@ -35,14 +35,27 @@ app.use((error, _req, res, _next) => {
   res.status(status).json({ error: error.message ?? 'Unexpected bridge error' });
 });
 
-const server = app.listen(config.port, config.host, () => {
+const server = app.listen(config.port, config.host, async () => {
   console.log(`[bridge] CurseForge bridge listening on http://${config.host}:${config.port}`);
+
   if (!hasApiKey()) {
     console.warn(
-      '[bridge] No CURSEFORGE_API_KEY set — CurseForge discovery stays disabled in the launcher.\n' +
-        '[bridge] Request a key at https://console.curseforge.com and put it in bridge/.env',
+      '[bridge] No CURSEFORGE_API_KEY found — CurseForge discovery stays disabled.\n' +
+        '[bridge] Put the key in bridge/.env and start with "npm start" (plain "node src/server.js"\n' +
+        '[bridge] does not read .env), or export CURSEFORGE_API_KEY in your shell.',
     );
+    return;
   }
+
+  // Validate at startup rather than on the user's first search, so a bad key is obvious here
+  // instead of surfacing as an opaque error inside the launcher.
+  console.log(`[bridge] API key loaded: ${apiKeyFingerprint()}`);
+  const check = await checkApiKey();
+  console.log(
+    check.ok
+      ? '[bridge] CurseForge accepted the key — discovery is ready.'
+      : `[bridge] CurseForge rejected the key.\n[bridge] ${check.reason}`,
+  );
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

@@ -52,7 +52,9 @@ CurseForge's API requires a per-developer key, and their terms do not allow ship
 client that users can read it out of. The `bridge/` service holds the key and proxies requests, so
 the launcher itself never sees it.
 
-Get a key at <https://console.curseforge.com>, put it in `bridge/.env`, and start the bridge. The
+Get a key at <https://console.curseforge.com>, put it in `bridge/.env`, and start the bridge with
+`npm start` — plain `node src/server.js` does not read `.env`. The bridge validates the key on
+startup and says so. The
 launcher points at `http://localhost:8787` by default; change it under **Settings → Content
 providers**. Without a running bridge, Modrinth still works and CurseForge is shown as
 unavailable with an explanation.

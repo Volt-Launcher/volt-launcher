@@ -14,6 +14,27 @@ npm start
 
 Get a key at <https://console.curseforge.com> (Settings → API Keys).
 
+Start it with `npm start`, not `node src/server.js` — the npm scripts pass `--env-file`, which is
+what makes `.env` get read at all. Alternatively export `CURSEFORGE_API_KEY` in your shell.
+
+On startup the bridge prints whether the key was loaded and whether CurseForge accepted it:
+
+```
+[bridge] API key loaded: aBcD…wXyZ (60 chars)
+[bridge] CurseForge accepted the key — discovery is ready.
+```
+
+### Getting a 403 with a key you know is valid
+
+Two causes, both handled now but worth knowing:
+
+* **`User-Agent`.** Node's `fetch` sends `User-Agent: node`, which the CDN in front of
+  `api.curseforge.com` rejects with 403 regardless of the key. The bridge sends a descriptive
+  agent instead; override it with `BRIDGE_USER_AGENT` if you need to.
+* **The key never reached the process.** `.env` is only read via the npm scripts, and a key
+  pasted with wrapping quotes or a trailing newline is sent verbatim and refused. The bridge now
+  strips those and prints the fingerprint above so you can confirm what it actually loaded.
+
 The launcher points at `http://localhost:8787` by default; change it under
 **Settings → Content Providers** if you host the bridge elsewhere.
 
