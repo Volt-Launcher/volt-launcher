@@ -4,6 +4,7 @@ import app.voltlauncher.auth.MinecraftAccountSession;
 import app.voltlauncher.auth.session.MicrosoftAuth;
 import app.voltlauncher.game.MinecraftLauncherService;
 import app.voltlauncher.game.instance.Instance;
+import app.voltlauncher.game.instance.InstanceBusyRegistry;
 import app.voltlauncher.game.instance.InstanceSettings;
 import app.voltlauncher.game.instance.RunningInstanceStatus;
 import app.voltlauncher.game.launch.InstanceLauncher;
@@ -124,10 +125,13 @@ public final class InstanceRoutes implements RouteModule {
     // ── launching ─────────────────────────────────────────────────────────────
 
     private JSONObject launch(Context ctx) throws Exception {
-        MinecraftAccountSession session = auth.getLaunchSession();
         String name = ctx.pathParam("name");
-        // Fail fast on an unknown profile so the UI reports it instead of polling a dead job.
+        // Profile-specific problems are reported before the account check: "this profile is still
+        // installing" is more actionable than a generic sign-in error when both are true.
         launcher.findInstance(name);
+        launcher.busyRegistry().requireIdle(name);
+
+        MinecraftAccountSession session = auth.getLaunchSession();
         launcher.launchInstanceAsync(session, name);
         return new JSONObject().put("instanceName", name);
     }
@@ -175,6 +179,16 @@ public final class InstanceRoutes implements RouteModule {
                 .put("settings", instance.settings().toJson())
                 .put("running", running != null)
                 .put("launchPhase", state.phase().name().toLowerCase(Locale.ROOT));
+
+        // A profile mid-install exists but is not yet playable; the UI disables its controls.
+        InstanceBusyRegistry.Activity busy = launcher.busyRegistry().get(instance.name());
+        json.put("busy", busy != null);
+        if (busy != null) {
+            json.put("busyStage", busy.reason())
+                    .put("busyCompleted", busy.completed())
+                    .put("busyTotal", busy.total())
+                    .put("busyPercent", busy.percent());
+        }
 
         if (running != null) {
             json.put("pid", running.pid())

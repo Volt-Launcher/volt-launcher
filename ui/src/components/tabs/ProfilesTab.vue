@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, reactive, computed, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import { useLauncher } from '@/composables/useLauncher';
+import InstallProgress from '@/components/discover/InstallProgress.vue';
 import type { LauncherInstance, ContentEntry, ContentType, InstanceSettings } from '@/composables/useLauncher';
 
 const {
@@ -18,6 +19,7 @@ const {
   selectedInstanceName,
   filteredInstances,
   pendingInstances,
+  visiblePendingInstances,
   isLoadingInstances,
   isLaunching,
   versionEmoji,
@@ -37,19 +39,6 @@ const {
 
 const filters = ['ALL', 'RELEASE', 'SNAPSHOT', 'NEOFORGE', 'FORGE', 'FABRIC', 'QUILT'];
 
-// ── Pending card step cycling ─────────────────────────────────────────────────
-const CREATION_STEPS = [
-  'Manifest laden...',
-  'Assets herunterladen...',
-  'Bibliotheken installieren...',
-  'Natives extrahieren...',
-  'Fertigstellen...',
-];
-const stepIndex = ref(0);
-let stepTimer: ReturnType<typeof setInterval> | null = null;
-onMounted(() => { stepTimer = setInterval(() => { stepIndex.value = (stepIndex.value + 1) % CREATION_STEPS.length; }, 3500); });
-onUnmounted(() => { if (stepTimer !== null) clearInterval(stepTimer); });
-
 const versionGradientClass = (type: string) => ({
   release: 'bg-[linear-gradient(135deg,#0d3a18,#184d22)]',
   snapshot: 'bg-[linear-gradient(135deg,#0a2040,#001535)]',
@@ -61,6 +50,8 @@ const versionGradientClass = (type: string) => ({
 const managingInstance = ref<LauncherInstance | null>(null);
 
 function openManage(inst: LauncherInstance) {
+  // A profile mid-install has no stable content to manage yet.
+  if (inst.busy) return;
   managingInstance.value = inst;
 }
 
@@ -70,8 +61,10 @@ function closeManage() {
 
 // ── Play action ───────────────────────────────────────────────────────────────
 function playInstance(inst: LauncherInstance) {
+  // Belt and braces: the button is hidden while busy, but this is also reachable by keyboard.
+  if (inst.busy) return;
   selectInstance(inst);
-  void handleLaunch();
+  void handleLaunch(inst.name);
 }
 
 // ── Select action ───────────────────────────────────────────────────────────────
@@ -324,7 +317,7 @@ async function saveSettings() {
         </button>
 
         <!-- Pending (creating) cards -->
-        <div v-for="pending in pendingInstances" :key="pending.id"
+        <div v-for="pending in visiblePendingInstances" :key="pending.id"
           class="relative h-48 overflow-hidden rounded-xl border bg-[var(--surface-panel)]"
           :class="pending.failed ? 'border-red-500/40' : 'border-white/10'">
           <!-- Image area -->
@@ -343,7 +336,7 @@ async function saveSettings() {
             </div>
             <div v-if="!pending.failed" class="flex items-center gap-1.5 text-[length:var(--text-2xs)] text-white/45">
               <span class="inline-block size-1.5 shrink-0 rounded-full bg-[var(--primary)] animate-pulse" />
-              {{ CREATION_STEPS[stepIndex] }}
+              {{ pending.failed ? (pending.errorMessage ?? t("profiles.createFailed")) : t("profiles.installing") }}
             </div>
             <div v-else class="text-[length:var(--text-2xs)] text-red-400 leading-[1.4]">
               {{ pending.errorMessage }}
@@ -359,7 +352,10 @@ async function saveSettings() {
 
         <!-- Instance cards -->
         <div v-for="inst in filteredInstances" :key="inst.slug"
-          class="group relative h-48 overflow-visible rounded-xl border border-white/10 bg-[var(--surface-panel)] text-left transition-all duration-200 hover:-translate-y-1 hover:border-[var(--accent-border-hover)] hover:shadow-[0_12px_32px_rgba(0,0,0,.4),0_0_24px_rgba(var(--primary-rgb),.1)] cursor-pointer"
+          class="group relative h-48 overflow-visible rounded-xl border bg-[var(--surface-panel)] text-left transition-all duration-200"
+          :class="inst.busy
+            ? 'border-[var(--accent-border)] cursor-progress'
+            : 'border-white/10 cursor-pointer hover:-translate-y-1 hover:border-[var(--accent-border-hover)] hover:shadow-[0_12px_32px_rgba(0,0,0,.4),0_0_24px_rgba(var(--primary-rgb),.1)]'"
           @click.stop="openManage(inst)">
           <!-- Card image area -->
           <div
@@ -372,13 +368,14 @@ async function saveSettings() {
             <div class="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[rgba(8,18,34,.95)]">
             </div>
 
-            <!-- Play button overlay — pointer-events enabled, stops card click -->
-            <div
+            <!-- Play button overlay — pointer-events enabled, stops card click.
+                 Suppressed while the profile is still being installed. -->
+            <div v-if="!inst.busy"
               class="pointer-events-auto absolute inset-0 flex items-center justify-center gap-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
               <button type="button"
                 class="h-10 inline-flex items-center gap-2 bg-[var(--primary)] rounded-[7px] px-4 py-2 text-[length:var(--text-base)] font-bold tracking-[0.08em] text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 :disabled="!authData || isLaunching" @click.stop="playInstance(inst)">
-                <Icon icon="lucide:play" class="size-[10px]" />PLAY
+                <Icon icon="lucide:play" class="size-[10px]" />{{ t("profiles.play") }}
               </button>
               <button v-if="selectedInstanceName !== inst.name" type="button"
                 class="h-10 inline-flex items-center gap-2 rounded-r-[7px] bg-(--surface-input) px-4 py-2 text-[length:var(--text-base)] font-bold tracking-[0.08em] text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -388,7 +385,10 @@ async function saveSettings() {
             </div>
 
             <div class="absolute left-[7px] top-[7px] flex gap-1 pointer-events-none">
-              <span v-if="inst.running"
+              <span v-if="inst.busy"
+                class="inline-flex items-center gap-1 rounded border border-[var(--accent-border)] bg-[var(--accent-bg-strong)] px-1.5 py-0.5 text-[8px] font-bold tracking-[0.08em] text-[var(--primary)]">
+                <Icon icon="lucide:loader-2" class="size-[8px] animate-spin" />INSTALLING</span>
+              <span v-else-if="inst.running"
                 class="rounded border border-[var(--success-border)] bg-[var(--success-bg)] px-1.5 py-0.5 text-[8px] font-bold tracking-[0.08em] text-[var(--accent)]">▶
                 ACTIVE</span>
               <span v-else-if="selectedInstanceName === inst.name"
@@ -401,7 +401,9 @@ async function saveSettings() {
           <div class="px-3 py-2.5 pointer-events-none">
             <div class="mb-1.5 truncate text-[length:var(--text-md-plus)] font-semibold leading-[1.35] text-white">{{
               inst.name }}</div>
-            <div class="flex flex-wrap gap-[5px] text-[length:var(--text-2xs)] text-white/60">
+            <InstallProgress v-if="inst.busy" compact :stage="inst.busyStage ?? null"
+              :completed="inst.busyCompleted ?? 0" :total="inst.busyTotal ?? 0" :percent="inst.busyPercent ?? -1" />
+            <div v-else class="flex flex-wrap gap-[5px] text-[length:var(--text-2xs)] text-white/60">
               <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-[#4caf50]"></span>{{
                 formatLoaderId(inst.versionId) }}</span>
               <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-[#6c63ff]"></span>Java
@@ -411,7 +413,7 @@ async function saveSettings() {
           </div>
 
           <!-- 3-dot menu -->
-          <div class="absolute right-[7px] top-[7px] z-10" @click.stop>
+          <div v-if="!inst.busy" class="absolute right-[7px] top-[7px] z-10" @click.stop>
             <button type="button"
               class="flex size-6 items-center justify-center rounded-md border border-white/10 bg-black/40 text-white/40 opacity-0 backdrop-blur-sm transition-all duration-150 group-hover:opacity-100 hover:!text-white hover:bg-white/15"
               @click="toggleMenu(inst.slug)">

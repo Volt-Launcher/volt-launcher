@@ -4,6 +4,7 @@ import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
 import { formatFileSize } from "@/composables/useProviders";
 import { minecraftVersionOf, loaderOf } from "@/composables/helpers";
+import InstallProgress from "./InstallProgress.vue";
 import type { ProjectSummary, ProjectVersion } from "@/composables/types";
 
 const props = defineProps<{ project: ProjectSummary | null }>();
@@ -18,6 +19,7 @@ const {
   installModpack,
   loadProjectVersions,
   isInstalling,
+  modpackProgress,
   launcherMessage,
 } = useLauncher();
 
@@ -50,12 +52,21 @@ const compatibleVersions = computed(() => {
   });
 });
 
+/** True while either flavour of install is running; the dialog stays put and locked. */
+const isBusy = computed(() => isInstalling.value || modpackProgress.value !== null);
+
+/** Closing mid-install would orphan a running job, so the request is simply ignored. */
+const requestClose = () => {
+  if (isBusy.value) return;
+  emit("close");
+};
+
 const canInstall = computed(
   () =>
     Boolean(props.project) &&
     Boolean(selectedVersionId.value) &&
     (isModpack.value || Boolean(targetProfile.value)) &&
-    !isInstalling.value,
+    !isBusy.value,
 );
 
 const reload = async () => {
@@ -129,7 +140,7 @@ const releaseColour = (releaseType: string) =>
   <div
     v-if="project"
     class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-    @click.self="emit('close')"
+    @click.self="requestClose"
   >
     <div class="flex max-h-[85vh] w-full max-w-[520px] flex-col rounded-2xl border border-white/10 bg-[var(--surface-modal)] shadow-2xl">
       <header class="flex items-start gap-3 border-b border-white/[0.07] p-5">
@@ -149,13 +160,29 @@ const releaseColour = (releaseType: string) =>
           type="button"
           class="shrink-0 rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/5 hover:text-white"
           :aria-label="t('common.close')"
-          @click="emit('close')"
+          :disabled="isBusy"
+          :class="isBusy ? 'cursor-not-allowed opacity-30' : ''"
+          @click="requestClose"
         >
           <Icon icon="lucide:x" class="size-[15px]" />
         </button>
       </header>
 
-      <div class="flex flex-col gap-4 overflow-y-auto p-5">
+      <!-- While a modpack installs the form is replaced by progress: the choices are already
+           committed, and the install runs for minutes. -->
+      <div v-if="modpackProgress" class="flex flex-col gap-4 p-5">
+        <InstallProgress
+          :stage="modpackProgress.stage"
+          :completed="modpackProgress.completed"
+          :total="modpackProgress.total"
+          :percent="modpackProgress.percent"
+        />
+        <p class="text-[length:var(--text-2xs)] leading-[1.5] text-white/40">
+          {{ t("progress.busyHint") }}
+        </p>
+      </div>
+
+      <div v-else class="flex flex-col gap-4 overflow-y-auto p-5">
         <!-- Target profile (not applicable to modpacks, which create their own) -->
         <div v-if="!isModpack">
           <label class="mb-1.5 block text-[length:var(--text-xs)] font-bold tracking-[0.1em] text-white/50 uppercase">
@@ -238,11 +265,12 @@ const releaseColour = (releaseType: string) =>
         </label>
       </div>
 
-      <footer class="flex justify-end gap-2 border-t border-white/[0.07] p-5">
+      <footer v-if="!modpackProgress" class="flex justify-end gap-2 border-t border-white/[0.07] p-5">
         <button
           type="button"
-          class="rounded-[7px] border border-white/10 bg-white/5 px-4 py-2 text-[length:var(--text-sm)] font-semibold text-white/60 transition-all hover:bg-white/10"
-          @click="emit('close')"
+          class="rounded-[7px] border border-white/10 bg-white/5 px-4 py-2 text-[length:var(--text-sm)] font-semibold text-white/60 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="isBusy"
+          @click="requestClose"
         >
           {{ t("common.cancel") }}
         </button>

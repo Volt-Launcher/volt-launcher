@@ -16,7 +16,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -27,6 +26,11 @@ import java.util.zip.ZipInputStream;
 public abstract class AbstractModpackInstaller {
 
     private static final int DOWNLOAD_CONCURRENCY = 8;
+
+    /** Stage identifiers the UI maps onto localised text. */
+    public static final String STAGE_RESOLVING = "resolving";
+    public static final String STAGE_DOWNLOADING = "downloading";
+    public static final String STAGE_OVERRIDES = "overrides";
 
     protected final HttpFetcher http;
 
@@ -51,9 +55,9 @@ public abstract class AbstractModpackInstaller {
     /**
      * Installs the pack's contents into the instance. The archive is deleted afterwards.
      *
-     * @param progress receives human-readable progress messages
+     * @param progress receives stage changes and download counts
      */
-    public abstract void applyPackContents(Instance instance, Path archive, Consumer<String> progress) throws Exception;
+    public abstract void applyPackContents(Instance instance, Path archive, ProgressSink progress) throws Exception;
 
     // ── shared helpers ────────────────────────────────────────────────────────
 
@@ -75,13 +79,14 @@ public abstract class AbstractModpackInstaller {
      * Downloads every file in parallel. A failure is collected rather than thrown immediately so
      * the user gets one summary instead of whichever error happened to surface first.
      */
-    protected void downloadFiles(Path gameDir, List<RemoteFile> files, Consumer<String> progress) throws Exception {
+    protected void downloadFiles(Path gameDir, List<RemoteFile> files, ProgressSink progress) throws Exception {
         if (files.isEmpty()) return;
 
         Semaphore permits = new Semaphore(DOWNLOAD_CONCURRENCY);
         List<Exception> errors = new ArrayList<>();
         AtomicInteger completed = new AtomicInteger();
         int total = files.size();
+        progress.update(STAGE_DOWNLOADING, 0, total);
 
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> tasks = new ArrayList<>(total);
@@ -103,10 +108,7 @@ public abstract class AbstractModpackInstaller {
                         } finally {
                             permits.release();
                         }
-                        int done = completed.incrementAndGet();
-                        if (done % 10 == 0 || done == total) {
-                            progress.accept("Downloading pack files (" + done + "/" + total + ")…");
-                        }
+                        progress.update(STAGE_DOWNLOADING, completed.incrementAndGet(), total);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         synchronized (errors) { errors.add(e); }

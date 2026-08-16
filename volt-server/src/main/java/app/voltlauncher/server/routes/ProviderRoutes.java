@@ -139,7 +139,11 @@ public final class ProviderRoutes implements RouteModule {
 
         JSONObject json = new JSONObject()
                 .put("phase", job.phase().name().toLowerCase(Locale.ROOT))
-                .put("message", job.message() == null ? JSONObject.NULL : job.message());
+                .put("stage", job.stage() == null ? JSONObject.NULL : job.stage())
+                .put("completed", job.completed())
+                .put("total", job.total())
+                .put("percent", job.percent())
+                .put("failureReason", job.error() == null ? JSONObject.NULL : job.error());
 
         Instance instance = job.instance();
         if (instance != null) {

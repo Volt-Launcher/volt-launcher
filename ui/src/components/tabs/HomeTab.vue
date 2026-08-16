@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
 import SkinModel from "@/components/SkinModel.vue";
+import InstallProgress from "@/components/discover/InstallProgress.vue";
 
 const {
   t,
@@ -93,9 +94,16 @@ const newsItems = computed(() => [
 
           <button v-else-if="selectedInstance" type="button"
             class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--accent-border-strong)] bg-[var(--primary)] px-5 py-2.5 text-[length:var(--text-sm)] font-bold tracking-[0.07em] text-white shadow-[var(--shadow-accent-md)] transition-all duration-200 hover:shadow-[var(--shadow-accent-lg)] disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="isLaunching || !selectedInstance" @click="handleLaunch">
+            :disabled="isLaunching || !selectedInstance || selectedInstance.busy" @click="handleLaunch">
             <Icon icon="lucide:play" class="size-[11px]" />{{ !selectedInstance ? t("home.noProfileSelected") : isLaunching ? t("home.starting") : t("home.launch") }}
           </button>
+
+          <div v-if="selectedInstance?.busy"
+            class="mt-0.5 w-full max-w-[380px] rounded-xl border border-[var(--accent-border)] bg-[var(--surface-panel-strong)] px-4 py-3 backdrop-blur-xl">
+            <InstallProgress :stage="selectedInstance.busyStage ?? null"
+              :completed="selectedInstance.busyCompleted ?? 0" :total="selectedInstance.busyTotal ?? 0"
+              :percent="selectedInstance.busyPercent ?? -1" />
+          </div>
 
           <div v-if="selectedInstance" class="mt-0.5 flex flex-wrap gap-3 text-[length:var(--text-xs)] text-white/50  rounded-xl border border-white/8 bg-[var(--surface-panel-strong)] px-4 py-3 backdrop-blur-xl">
             <span v-if="selectedInstance" class="inline-flex items-center gap-1">

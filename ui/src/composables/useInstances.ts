@@ -71,13 +71,21 @@ const selectedVersion = computed(
 );
 
 const filteredInstances = computed(() => {
-  const pendingNames = new Set(
-    pendingInstances.value.filter((pending) => !pending.failed).map((pending) => pending.name.toLowerCase()),
-  );
-  const visible = instances.value.filter((instance) => !pendingNames.has(instance.name.toLowerCase()));
+  const visible = instances.value;
   if (profileFilter.value === "ALL") return visible;
   return visible.filter((instance) =>
     instance.versionType.toLowerCase().includes(profileFilter.value.toLowerCase()),
+  );
+});
+
+/**
+ * Placeholder cards, shown only until the profile record exists. Once it does, the real card
+ * takes over and reports actual install progress, so the two never appear at the same time.
+ */
+const visiblePendingInstances = computed(() => {
+  const existing = new Set(instances.value.map((instance) => instance.name.toLowerCase()));
+  return pendingInstances.value.filter(
+    (pending) => pending.failed || !existing.has(pending.name.toLowerCase()),
   );
 });
 
@@ -396,6 +404,7 @@ export function useInstances() {
     isLoadingLoaderVersions,
     profileFilter,
     pendingInstances,
+    visiblePendingInstances,
     showCreateModal,
     showEditModal,
     showDeleteModal,

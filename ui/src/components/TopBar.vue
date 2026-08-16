@@ -6,8 +6,6 @@ const {
   t,
   authData,
   isAuthenticating,
-  error,
-  launcherMessage,
   activeTab,
   playerAvatarUrl,
   playerAvatarFallback,

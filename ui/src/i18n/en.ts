@@ -147,6 +147,19 @@ export const en = {
     },
   },
 
+  progress: {
+    fetching: "Reading the modpack…",
+    installing: "Installing Minecraft and the mod loader…",
+    resolving: "Resolving pack files…",
+    downloading: "Downloading pack files",
+    overrides: "Applying pack configuration…",
+    done: "Installation complete",
+    failed: "Installation failed",
+    installingContent: "Installing content…",
+    ofFiles: "{completed} of {total} files",
+    busyHint: "This profile is still being set up.",
+  },
+
   install: {
     toProfile: "Add to profile",
     chooseProfile: "Choose a profile",

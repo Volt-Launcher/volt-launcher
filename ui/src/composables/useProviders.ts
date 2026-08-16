@@ -221,8 +221,14 @@ export type ModpackPhase = "fetching" | "installing" | "downloading_content" | "
 
 export interface ModpackProgress {
   phase: ModpackPhase;
-  message: string | null;
+  /** Stable stage id, translated via `progress.<stage>`. */
+  stage: string | null;
+  completed: number;
+  total: number;
+  /** Completion percentage, or -1 when the step has no countable work. */
+  percent: number;
   instanceName: string | null;
+  packName: string;
 }
 
 const modpackProgress = ref<ModpackProgress | null>(null);
@@ -249,44 +255,68 @@ const installModpack = async (
     return null;
   }
 
-  modpackProgress.value = { phase: "fetching", message: t("install.packInstalling"), instanceName: null };
+  modpackProgress.value = {
+    phase: "fetching",
+    stage: "fetching",
+    completed: 0,
+    total: 0,
+    percent: -1,
+    instanceName: null,
+    packName: name,
+  };
+
+  const finish = (jobIdToClear: string) => {
+    modpackProgress.value = null;
+    void apiSend("DELETE", `/api/modpacks/install/${encodeURIComponent(jobIdToClear)}`).catch(() => {});
+  };
 
   return new Promise<string | null>((resolve) => {
+    // Polled fast enough that the file counter visibly moves, since a pack can be
+    // several hundred files and a stalled-looking bar reads as a hang.
     const poll = window.setInterval(async () => {
       try {
         const status = await apiGet<{
           success: boolean;
           phase: ModpackPhase;
-          message: string | null;
+          stage: string | null;
+          completed: number;
+          total: number;
+          percent: number;
+          failureReason: string | null;
           instance?: { name: string };
         }>(`/api/modpacks/install/${encodeURIComponent(jobId)}`);
 
         modpackProgress.value = {
           phase: status.phase,
-          message: status.message,
+          stage: status.stage,
+          completed: status.completed,
+          total: status.total,
+          percent: status.percent,
           instanceName: status.instance?.name ?? null,
+          packName: name,
         };
 
         if (status.phase === "done") {
           window.clearInterval(poll);
           const instanceName = status.instance?.name ?? name;
           launcherMessage.value = t("install.packSuccess", { name: instanceName });
-          modpackProgress.value = null;
-          void apiSend("DELETE", `/api/modpacks/install/${encodeURIComponent(jobId)}`).catch(() => {});
+          finish(jobId);
           resolve(instanceName);
         } else if (status.phase === "failed") {
           window.clearInterval(poll);
-          error.value = status.message ?? t("install.packFailed");
-          modpackProgress.value = null;
-          void apiSend("DELETE", `/api/modpacks/install/${encodeURIComponent(jobId)}`).catch(() => {});
+          error.value = status.failureReason ?? t("install.packFailed");
+          finish(jobId);
           resolve(null);
         }
       } catch {
         // Transient polling failures are expected while large downloads saturate the connection.
       }
-    }, 1500);
+    }, 750);
   });
 };
+
+/** Whether a modpack install is currently running, for disabling entry points. */
+const isInstallingModpack = computed(() => modpackProgress.value !== null);
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -339,6 +369,7 @@ export function useProviders() {
     installIntoProfile,
     installModpack,
     modpackProgress,
+    isInstallingModpack,
 
     formatDownloads,
     formatFileSize,

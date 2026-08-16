@@ -4,6 +4,7 @@ import app.voltlauncher.auth.MinecraftAccountSession;
 import app.voltlauncher.core.util.HttpFetcher;
 import app.voltlauncher.game.install.AssetInstaller;
 import app.voltlauncher.game.instance.Instance;
+import app.voltlauncher.game.instance.InstanceBusyRegistry;
 import app.voltlauncher.game.instance.InstanceContentService;
 import app.voltlauncher.game.instance.InstanceManager;
 import app.voltlauncher.game.instance.InstanceSettings;
@@ -41,6 +42,7 @@ public final class MinecraftLauncherService {
     private final JavaRuntimeResolver javaResolver;
     private final InstanceLauncher instanceLauncher;
     private final InstanceContentService contentService;
+    private final InstanceBusyRegistry busyRegistry = new InstanceBusyRegistry();
 
     public MinecraftLauncherService(String launcherClientId) {
         this.http = new HttpFetcher();
@@ -70,6 +72,11 @@ public final class MinecraftLauncherService {
         return javaResolver;
     }
 
+    /** Long-running operations register here so the rest of the app can refuse to interfere. */
+    public InstanceBusyRegistry busyRegistry() {
+        return busyRegistry;
+    }
+
     // ── Instance queries ──────────────────────────────────────────────────────
 
     public List<Instance> listInstances() throws Exception {
@@ -95,18 +102,30 @@ public final class MinecraftLauncherService {
         String resolvedVersionId = meta.optString("id", versionId);
 
         Instance instance = instanceManager.createInstance(name, resolvedVersionId, versionType, meta);
+
+        // The profile is listed the moment its record is written, but downloading assets and
+        // running the loader's processors takes minutes. It is marked busy for that whole window
+        // so nothing can launch or delete a profile that is not installed yet.
+        busyRegistry.begin(instance.name(), "installing");
         try {
             // A single pass suffices for every platform: loader metadata already carries the
             // merged vanilla libraries and points at the vanilla client jar via its "jar" field.
             assetInstaller.ensureInstallation(instance, meta);
             return instance;
         } catch (Exception e) {
-            try { instanceManager.removeInstance(instance.name()); } catch (Exception ignored) { /* best effort */ }
+            try {
+                instanceManager.removeInstance(instance.name());
+            } catch (Exception ignored) {
+                // Best effort: the caller already has the real failure to report.
+            }
             throw e;
+        } finally {
+            busyRegistry.end(instance.name());
         }
     }
 
     public void deleteInstance(String name) throws Exception {
+        busyRegistry.requireIdle(name);
         if (instanceLauncher.isRunning(name)) {
             throw new IllegalStateException("Instance is currently running. Stop it before deleting.");
         }
@@ -115,6 +134,7 @@ public final class MinecraftLauncherService {
     }
 
     public Instance renameInstance(String name, String newName) throws Exception {
+        busyRegistry.requireIdle(name);
         if (instanceLauncher.isRunning(name)) {
             throw new IllegalStateException("Instance is currently running. Stop it before renaming.");
         }
@@ -126,6 +146,7 @@ public final class MinecraftLauncherService {
     }
 
     public Instance updateInstanceSettings(String name, InstanceSettings settings) throws Exception {
+        busyRegistry.requireIdle(name);
         return instanceManager.updateSettings(name, settings);
     }
 
@@ -138,16 +159,19 @@ public final class MinecraftLauncherService {
 
     public InstanceContentService.ContentEntry addContent(
             String name, InstanceContentService.ContentType type, Path source) throws Exception {
+        busyRegistry.requireIdle(name);
         return contentService.add(name, type, source);
     }
 
     public void removeContent(
             String name, InstanceContentService.ContentType type, String fileName) throws Exception {
+        busyRegistry.requireIdle(name);
         contentService.remove(name, type, fileName);
     }
 
     public InstanceContentService.ContentEntry toggleContent(
             String name, InstanceContentService.ContentType type, String fileName) throws Exception {
+        busyRegistry.requireIdle(name);
         return contentService.toggle(name, type, fileName);
     }
 
@@ -178,6 +202,7 @@ public final class MinecraftLauncherService {
     // ── Launch delegation ─────────────────────────────────────────────────────
 
     public void launchInstanceAsync(MinecraftAccountSession session, String instanceName) {
+        busyRegistry.requireIdle(instanceName);
         instanceLauncher.launchAsync(session, instanceName);
     }
 

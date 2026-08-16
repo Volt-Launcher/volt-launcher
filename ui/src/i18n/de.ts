@@ -149,6 +149,19 @@ export const de: Messages = {
     },
   },
 
+  progress: {
+    fetching: "Modpack wird gelesen…",
+    installing: "Minecraft und Mod-Loader werden installiert…",
+    resolving: "Paketdateien werden ermittelt…",
+    downloading: "Paketdateien werden geladen",
+    overrides: "Paketkonfiguration wird angewendet…",
+    done: "Installation abgeschlossen",
+    failed: "Installation fehlgeschlagen",
+    installingContent: "Inhalte werden installiert…",
+    ofFiles: "{completed} von {total} Dateien",
+    busyHint: "Dieses Profil wird noch eingerichtet.",
+  },
+
   install: {
     toProfile: "Zu Profil hinzufügen",
     chooseProfile: "Profil wählen",

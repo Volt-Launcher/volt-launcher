@@ -4,6 +4,7 @@ import app.voltlauncher.core.config.SettingsStore;
 import app.voltlauncher.core.util.HttpFetcher;
 import app.voltlauncher.game.instance.Instance;
 import app.voltlauncher.providers.content.AbstractModpackInstaller;
+import app.voltlauncher.providers.content.ProgressSink;
 import app.voltlauncher.providers.model.ProjectVersion;
 import app.voltlauncher.providers.model.ProviderId;
 import org.json.JSONArray;
@@ -16,7 +17,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.function.Consumer;
 
 /**
  * Installs CurseForge modpack archives.
@@ -65,17 +65,14 @@ public final class CurseForgePackInstaller extends AbstractModpackInstaller {
     }
 
     @Override
-    public void applyPackContents(Instance instance, Path archive, Consumer<String> progress) throws Exception {
+    public void applyPackContents(Instance instance, Path archive, ProgressSink progress) throws Exception {
         try {
             JSONObject manifest = readJsonEntry(archive, MANIFEST_ENTRY);
 
-            progress.accept("Resolving pack files…");
             List<RemoteFile> files = resolveManifestFiles(manifest.optJSONArray("files"), progress);
-
-            progress.accept("Downloading pack files…");
             downloadFiles(instance.gameDirectory(), files, progress);
 
-            progress.accept("Applying pack configuration…");
+            progress.stage(STAGE_OVERRIDES);
             String overrides = manifest.optString("overrides", "overrides");
             applyOverrides(instance.gameDirectory(), archive, List.of(overrides));
         } finally {
@@ -123,7 +120,7 @@ public final class CurseForgePackInstaller extends AbstractModpackInstaller {
      * Resolves every {@code (projectID, fileID)} pair into a concrete download. Requests go out in
      * batches because CurseForge caps the number of ids per bulk lookup.
      */
-    private List<RemoteFile> resolveManifestFiles(JSONArray manifestFiles, Consumer<String> progress) throws Exception {
+    private List<RemoteFile> resolveManifestFiles(JSONArray manifestFiles, ProgressSink progress) throws Exception {
         List<RemoteFile> result = new ArrayList<>();
         if (manifestFiles == null || manifestFiles.isEmpty()) return result;
 
@@ -138,8 +135,7 @@ public final class CurseForgePackInstaller extends AbstractModpackInstaller {
         Map<Integer, JSONObject> resolved = new LinkedHashMap<>();
         for (int start = 0; start < fileIds.size(); start += BULK_BATCH_SIZE) {
             List<Integer> batch = fileIds.subList(start, Math.min(start + BULK_BATCH_SIZE, fileIds.size()));
-            progress.accept("Resolving pack files (" + Math.min(start + batch.size(), fileIds.size())
-                    + "/" + fileIds.size() + ")…");
+            progress.update(STAGE_RESOLVING, Math.min(start + batch.size(), fileIds.size()), fileIds.size());
 
             JSONObject body = new JSONObject().put("fileIds", new JSONArray(batch));
             JSONObject response = http.postJson(bridgeUrl() + "/v1/mods/files", body);

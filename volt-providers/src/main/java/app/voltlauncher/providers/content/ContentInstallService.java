@@ -52,6 +52,10 @@ public final class ContentInstallService {
      */
     public InstallReport install(String instanceName, ProviderId providerId, String versionId,
                                  ContentKind kind, boolean withDependencies) throws Exception {
+        // Refuses if the profile is still being set up, so a mod cannot land in a directory a
+        // modpack install is concurrently populating.
+        launcher.busyRegistry().requireIdle(instanceName);
+
         Instance instance = launcher.findInstance(instanceName);
         ContentProvider provider = providers.requireAvailable(providerId);
 
@@ -67,13 +71,18 @@ public final class ContentInstallService {
         List<String> skipped = new ArrayList<>();
         Set<String> visitedProjects = new LinkedHashSet<>();
 
-        ProjectVersion root = provider.version(versionId);
-        installOne(instance, provider, root, target, installed, skipped, false);
-        visitedProjects.add(root.projectId());
+        launcher.busyRegistry().begin(instance.name(), "installing content");
+        try {
+            ProjectVersion root = provider.version(versionId);
+            installOne(instance, provider, root, target, installed, skipped, false);
+            visitedProjects.add(root.projectId());
 
-        if (withDependencies) {
-            resolveDependencies(instance, provider, root, target, gameVersion, loader,
-                    visitedProjects, installed, skipped, 1);
+            if (withDependencies) {
+                resolveDependencies(instance, provider, root, target, gameVersion, loader,
+                        visitedProjects, installed, skipped, 1);
+            }
+        } finally {
+            launcher.busyRegistry().end(instance.name());
         }
         return new InstallReport(installed, skipped);
     }

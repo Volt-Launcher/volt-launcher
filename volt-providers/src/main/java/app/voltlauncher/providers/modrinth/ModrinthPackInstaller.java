@@ -3,6 +3,7 @@ package app.voltlauncher.providers.modrinth;
 import app.voltlauncher.core.util.HttpFetcher;
 import app.voltlauncher.game.instance.Instance;
 import app.voltlauncher.providers.content.AbstractModpackInstaller;
+import app.voltlauncher.providers.content.ProgressSink;
 import app.voltlauncher.providers.model.ProviderId;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -11,7 +12,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
 
 /** Installs Modrinth {@code .mrpack} archives. */
 public final class ModrinthPackInstaller extends AbstractModpackInstaller {
@@ -53,14 +53,13 @@ public final class ModrinthPackInstaller extends AbstractModpackInstaller {
     }
 
     @Override
-    public void applyPackContents(Instance instance, Path archive, Consumer<String> progress) throws Exception {
+    public void applyPackContents(Instance instance, Path archive, ProgressSink progress) throws Exception {
         try {
             JSONObject index = readJsonEntry(archive, INDEX_ENTRY);
 
-            progress.accept("Downloading pack files…");
             downloadFiles(instance.gameDirectory(), collectFiles(index.optJSONArray("files")), progress);
 
-            progress.accept("Applying pack configuration…");
+            progress.stage(STAGE_OVERRIDES);
             applyOverrides(instance.gameDirectory(), archive, OVERRIDE_PREFIXES);
         } finally {
             Files.deleteIfExists(archive);

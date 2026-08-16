@@ -19,12 +19,36 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Runs modpack installations in the background and exposes their progress, so the UI can poll a
  * job id instead of holding a request open for what can be several minutes of downloading.
+ *
+ * <p>The profile is created early — the loader has to be installed before its mods can land — so
+ * it is registered as busy for the rest of the install. That is what stops the UI (and the API)
+ * from launching or deleting a profile that is only half populated.
  */
 public final class ModpackInstallService {
 
     public enum Phase { FETCHING, INSTALLING, DOWNLOADING_CONTENT, DONE, FAILED }
 
-    public record Job(Phase phase, String message, Instance instance) {}
+    /**
+     * @param stage    identifier of the current step, for the UI to translate; may be null
+     * @param completed units done, meaningful only when {@code total} is positive
+     */
+    public record Job(
+            Phase phase,
+            String stage,
+            int completed,
+            int total,
+            String error,
+            Instance instance) {
+
+        public boolean hasProgress() {
+            return total > 0;
+        }
+
+        public int percent() {
+            if (!hasProgress()) return -1;
+            return Math.min(100, Math.max(0, (int) Math.round((completed * 100.0) / total)));
+        }
+    }
 
     private final MinecraftLauncherService launcher;
     private final Map<ProviderId, AbstractModpackInstaller> installers = new EnumMap<>(ProviderId.class);
@@ -53,7 +77,7 @@ public final class ModpackInstallService {
         }
 
         String jobId = UUID.randomUUID().toString();
-        update(jobId, Phase.FETCHING, "Downloading modpack metadata…", null);
+        jobs.put(jobId, new Job(Phase.FETCHING, "fetching", 0, 0, null, null));
 
         Thread.ofVirtual().name("modpack-install-" + jobId).start(() -> {
             AbstractModpackInstaller.PackInfo info = null;
@@ -61,26 +85,33 @@ public final class ModpackInstallService {
             try {
                 info = installer.fetchPackInfo(versionId);
 
-                update(jobId, Phase.INSTALLING, "Installing Minecraft and mod loader…", null);
+                jobs.put(jobId, new Job(Phase.INSTALLING, "installing", 0, 0, null, null));
                 String instanceName = name == null || name.isBlank() ? info.packName() : name;
                 instance = launcher.createInstance(instanceName, info.versionId());
 
                 Instance created = instance;
-                update(jobId, Phase.DOWNLOADING_CONTENT, "Downloading pack files…", created);
-                installer.applyPackContents(created, info.archiveFile(),
-                        message -> update(jobId, Phase.DOWNLOADING_CONTENT, message, created));
+                launcher.busyRegistry().begin(created.name(), "installing modpack");
+                jobs.put(jobId, new Job(Phase.DOWNLOADING_CONTENT, "downloading", 0, 0, null, created));
 
-                update(jobId, Phase.DONE, "Installation complete", created);
+                installer.applyPackContents(created, info.archiveFile(), (stage, completed, total) -> {
+                    jobs.put(jobId, new Job(Phase.DOWNLOADING_CONTENT, stage, completed, total, null, created));
+                    launcher.busyRegistry().progress(created.name(), stage, completed, total);
+                });
+
+                launcher.busyRegistry().end(created.name());
+                jobs.put(jobId, new Job(Phase.DONE, "done", 0, 0, null, created));
             } catch (Exception e) {
-                // Roll back so a failed install never leaves a broken profile in the list.
+                // Roll back so a failed install never leaves a broken profile in the list. The
+                // busy marker is cleared first, otherwise the delete would refuse itself.
                 if (instance != null) {
+                    launcher.busyRegistry().end(instance.name());
                     try { launcher.deleteInstance(instance.name()); } catch (Exception ignored) { /* best effort */ }
                 }
                 if (info != null) {
                     deleteQuietly(info.archiveFile());
                 }
-                update(jobId, Phase.FAILED,
-                        e.getMessage() != null ? e.getMessage() : "Modpack installation failed", null);
+                jobs.put(jobId, new Job(Phase.FAILED, "failed", 0, 0,
+                        e.getMessage() != null ? e.getMessage() : "Modpack installation failed", null));
             }
         });
         return jobId;
@@ -92,10 +123,6 @@ public final class ModpackInstallService {
 
     public void clearJob(String jobId) {
         jobs.remove(jobId);
-    }
-
-    private void update(String jobId, Phase phase, String message, Instance instance) {
-        jobs.put(jobId, new Job(phase, message, instance));
     }
 
     private void deleteQuietly(Path path) {

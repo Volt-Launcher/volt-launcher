@@ -36,6 +36,13 @@ export interface LauncherInstance {
   settings: InstanceSettings;
   running: boolean;
   launchPhase: LaunchPhase;
+  /** True while a long-running operation owns this profile; its controls must stay disabled. */
+  busy: boolean;
+  busyStage?: string;
+  busyCompleted?: number;
+  busyTotal?: number;
+  /** Completion percentage, or -1 when the work cannot be counted. */
+  busyPercent?: number;
   pid?: number;
   startedAt?: number;
   javaExecutable?: string;
