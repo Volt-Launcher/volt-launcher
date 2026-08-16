@@ -1,44 +1,40 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
+import SettingsPanel from "./SettingsPanel.vue";
 
-const { authData, accounts, isAuthenticating, handleLogin, handleLogout, cancelLogin, switchAccount, removeAccount } = useLauncher();
+const { t, authData, accounts, isAuthenticating, handleLogin, cancelLogin, switchAccount, removeAccount } =
+  useLauncher();
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 flex items-center gap-[7px] text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">
-        <Icon icon="lucide:users" class="size-[13px]" />MICROSOFT ACCOUNTS
-      </div>
-      <div class="mb-[14px] text-[length:var(--text-base)] leading-[1.55] text-white/60">
-        Manage Microsoft accounts for Minecraft
-      </div>
-
-      <!-- Account list -->
-      <div v-if="accounts.length > 0" class="flex flex-col gap-2 mb-3">
+    <SettingsPanel :title="t('auth.accounts')" :description="t('auth.accountsHint')" icon="lucide:users">
+      <div v-if="accounts.length > 0" class="mb-3 flex flex-col gap-2">
         <div
           v-for="account in accounts"
           :key="account.uuid"
-          class="flex items-center justify-between gap-3 rounded-[10px] border bg-[var(--surface-input-soft)] p-3"
+          class="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border bg-[var(--surface-input-soft)] p-3"
           :class="account.selected ? 'border-[var(--accent-border)]' : 'border-white/10'"
         >
-          <div class="flex items-center gap-2.5 min-w-0">
-            <div
-              class="flex size-7 shrink-0 items-center justify-center rounded-full text-[length:var(--text-xs)] font-bold"
-              :class="account.selected ? 'bg-[var(--accent-bg-strong)] text-[var(--primary)]' : 'bg-white/10 text-white/50'"
-            >
-              {{ account.username.charAt(0).toUpperCase() }}
-            </div>
+          <div class="flex min-w-0 items-center gap-2.5">
+            <img
+              :src="`https://crafatar.com/avatars/${encodeURIComponent(account.uuid)}?size=32&overlay`"
+              :alt="account.username"
+              class="size-7 shrink-0 rounded-full bg-white/10"
+              loading="lazy"
+            />
             <div class="min-w-0">
-              <div class="text-[length:var(--text-md)] font-semibold text-white truncate">{{ account.username }}</div>
-              <div class="font-mono text-[length:var(--text-2xs)] text-white/35 truncate">{{ account.uuid }}</div>
+              <div class="truncate text-[length:var(--text-md)] font-semibold text-white">
+                {{ account.username }}
+              </div>
+              <div class="truncate font-mono text-[length:var(--text-2xs)] text-white/35">{{ account.uuid }}</div>
             </div>
             <span
               v-if="account.selected"
-              class="shrink-0 rounded-[4px] bg-[var(--accent-bg-soft)] px-1.5 py-0.5 text-[length:var(--text-2xs)] font-bold tracking-[0.1em] text-[var(--primary)]/70"
+              class="shrink-0 rounded-[4px] bg-[var(--accent-bg-soft)] px-1.5 py-0.5 text-[length:var(--text-2xs)] font-bold tracking-[0.1em] text-[var(--primary)]/70 uppercase"
             >
-              ACTIVE
+              {{ t("auth.active") }}
             </span>
           </div>
 
@@ -50,10 +46,11 @@ const { authData, accounts, isAuthenticating, handleLogin, handleLogout, cancelL
               @click="switchAccount(account.uuid)"
             >
               <Icon icon="lucide:log-in" class="size-[11px]" />
-              Switch
+              {{ t("auth.switch") }}
             </button>
             <button
               type="button"
+              :aria-label="t('common.remove')"
               class="inline-flex items-center gap-1 rounded-[6px] border border-white/10 bg-white/5 px-2.5 py-[5px] text-[length:var(--text-sm)] font-semibold text-white/40 transition-all hover:border-[var(--danger-border)] hover:bg-[var(--danger-bg)] hover:text-[var(--danger-text)]"
               @click="removeAccount(account.uuid)"
             >
@@ -63,12 +60,10 @@ const { authData, accounts, isAuthenticating, handleLogin, handleLogout, cancelL
         </div>
       </div>
 
-      <!-- No accounts -->
-      <div v-else-if="!authData" class="mb-3 text-[length:var(--text-base)] leading-[1.6] text-white/60">
-        Sign in with Microsoft to launch Minecraft.
-      </div>
+      <p v-else-if="!authData" class="mb-3 text-[length:var(--text-base)] leading-[1.6] text-white/60">
+        {{ t("auth.signInHint") }}
+      </p>
 
-      <!-- Add account / cancel button -->
       <button
         v-if="!isAuthenticating"
         type="button"
@@ -76,7 +71,7 @@ const { authData, accounts, isAuthenticating, handleLogin, handleLogout, cancelL
         @click="handleLogin"
       >
         <Icon icon="lucide:plus" class="size-[13px]" />
-        {{ accounts.length > 0 ? "Add Account" : "Sign in with Microsoft" }}
+        {{ accounts.length > 0 ? t("auth.addAccount") : t("auth.signIn") }}
       </button>
       <button
         v-else
@@ -85,8 +80,8 @@ const { authData, accounts, isAuthenticating, handleLogin, handleLogout, cancelL
         @click="cancelLogin"
       >
         <Icon icon="lucide:loader-2" class="size-[13px] animate-spin" />
-        Waiting… (click to cancel)
+        {{ t("auth.waiting") }}
       </button>
-    </div>
+    </SettingsPanel>
   </div>
 </template>

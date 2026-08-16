@@ -1,0 +1,221 @@
+package app.voltlauncher.server.routes;
+
+import app.voltlauncher.auth.MinecraftAccountSession;
+import app.voltlauncher.auth.session.MicrosoftAuth;
+import app.voltlauncher.game.MinecraftLauncherService;
+import app.voltlauncher.game.instance.Instance;
+import app.voltlauncher.game.instance.InstanceSettings;
+import app.voltlauncher.game.instance.RunningInstanceStatus;
+import app.voltlauncher.game.launch.InstanceLauncher;
+import app.voltlauncher.game.platform.IPlatform;
+import app.voltlauncher.game.platform.version.AvailableVersion;
+import app.voltlauncher.server.route.RequestBody;
+import app.voltlauncher.server.route.RouteModule;
+import app.voltlauncher.server.route.RouteRegistry;
+import io.javalin.http.Context;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.awt.Desktop;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Locale;
+
+/** Profile CRUD, version listings and the launch lifecycle. */
+public final class InstanceRoutes implements RouteModule {
+
+    private final MinecraftLauncherService launcher;
+    private final MicrosoftAuth auth;
+
+    public InstanceRoutes(MinecraftLauncherService launcher, MicrosoftAuth auth) {
+        this.launcher = launcher;
+        this.auth = auth;
+    }
+
+    @Override
+    public void register(RouteRegistry routes) {
+        routes.get("/api/platforms", this::listPlatforms);
+        routes.get("/api/instances/versions", this::listVersions);
+        routes.get("/api/instances/loader-versions", this::listLoaderVersions);
+
+        routes.get("/api/instances", this::listInstances);
+        routes.post("/api/instances", this::createInstance);
+        routes.patch("/api/instances/{name}", this::renameInstance);
+        routes.delete("/api/instances/{name}", this::deleteInstance);
+        routes.patch("/api/instances/{name}/settings", this::updateSettings);
+        routes.post("/api/instances/{name}/open-folder", this::openFolder);
+
+        routes.post("/api/instances/{name}/launch", this::launch);
+        routes.get("/api/instances/{name}/launch-status", this::launchStatus);
+        routes.post("/api/instances/{name}/stop", this::stop);
+    }
+
+    // ── versions ──────────────────────────────────────────────────────────────
+
+    private JSONObject listPlatforms(Context ctx) {
+        JSONArray platforms = new JSONArray();
+        for (IPlatform platform : launcher.listPlatforms()) {
+            platforms.put(new JSONObject()
+                    .put("id", platform.id())
+                    .put("displayName", platform.displayName()));
+        }
+        return new JSONObject().put("platforms", platforms);
+    }
+
+    private JSONObject listVersions(Context ctx) throws Exception {
+        List<AvailableVersion> versions = launcher.listVersions(
+                RequestBody.queryFlag(ctx, "includeSnapshots", false),
+                RequestBody.queryFlag(ctx, "includeBetas", false),
+                RequestBody.queryFlag(ctx, "includeAlphas", false));
+        return new JSONObject().put("versions", toVersionArray(versions));
+    }
+
+    private JSONObject listLoaderVersions(Context ctx) throws Exception {
+        List<AvailableVersion> versions = launcher.listLoaderVersions(
+                RequestBody.requiredQuery(ctx, "platformId"),
+                RequestBody.requiredQuery(ctx, "minecraftVersionId"));
+        return new JSONObject().put("versions", toVersionArray(versions));
+    }
+
+    // ── instances ─────────────────────────────────────────────────────────────
+
+    private JSONObject listInstances(Context ctx) throws Exception {
+        JSONArray array = new JSONArray();
+        for (Instance instance : launcher.listInstances()) {
+            array.put(toJson(instance));
+        }
+        return new JSONObject().put("instances", array);
+    }
+
+    private JSONObject createInstance(Context ctx) throws Exception {
+        JSONObject body = RequestBody.json(ctx);
+        Instance instance = launcher.createInstance(
+                RequestBody.requiredString(body, "name"),
+                RequestBody.requiredString(body, "versionId"));
+        return new JSONObject().put("instance", toJson(instance));
+    }
+
+    private JSONObject renameInstance(Context ctx) throws Exception {
+        JSONObject body = RequestBody.json(ctx);
+        Instance instance = launcher.renameInstance(
+                ctx.pathParam("name"), RequestBody.requiredString(body, "name"));
+        return new JSONObject().put("instance", toJson(instance));
+    }
+
+    private JSONObject deleteInstance(Context ctx) throws Exception {
+        launcher.deleteInstance(ctx.pathParam("name"));
+        return new JSONObject();
+    }
+
+    private JSONObject updateSettings(Context ctx) throws Exception {
+        JSONObject body = RequestBody.json(ctx);
+        Instance instance = launcher.updateInstanceSettings(
+                ctx.pathParam("name"), InstanceSettings.fromJson(body));
+        return new JSONObject().put("instance", toJson(instance));
+    }
+
+    private JSONObject openFolder(Context ctx) throws Exception {
+        Path folder = launcher.getInstanceFolder(ctx.pathParam("name"));
+        openInFileManager(folder);
+        return new JSONObject().put("path", folder.toString());
+    }
+
+    // ── launching ─────────────────────────────────────────────────────────────
+
+    private JSONObject launch(Context ctx) throws Exception {
+        MinecraftAccountSession session = auth.getLaunchSession();
+        String name = ctx.pathParam("name");
+        // Fail fast on an unknown profile so the UI reports it instead of polling a dead job.
+        launcher.findInstance(name);
+        launcher.launchInstanceAsync(session, name);
+        return new JSONObject().put("instanceName", name);
+    }
+
+    private JSONObject launchStatus(Context ctx) {
+        String name = ctx.pathParam("name");
+        InstanceLauncher.LaunchState state = launcher.getLaunchState(name);
+
+        JSONObject json = new JSONObject()
+                .put("phase", state.phase().name().toLowerCase(Locale.ROOT))
+                .put("message", state.message() == null ? JSONObject.NULL : state.message());
+
+        if (state.result() != null) {
+            json.put("instanceName", state.result().instanceName())
+                    .put("version", state.result().versionId())
+                    .put("pid", state.result().pid())
+                    .put("logFile", state.result().logFile())
+                    .put("javaMajorVersion", state.result().javaMajorVersion())
+                    .put("javaExecutable", state.result().javaExecutable());
+        }
+        return json;
+    }
+
+    private JSONObject stop(Context ctx) throws Exception {
+        String name = ctx.pathParam("name");
+        boolean stopped = launcher.stopInstance(name);
+        return new JSONObject().put("instanceName", name).put("stopped", stopped);
+    }
+
+    // ── mapping ───────────────────────────────────────────────────────────────
+
+    private JSONObject toJson(Instance instance) {
+        RunningInstanceStatus running = launcher.getRunningInstanceStatus(instance.name());
+        InstanceLauncher.LaunchState state = launcher.getLaunchState(instance.name());
+
+        JSONObject json = new JSONObject()
+                .put("name", instance.name())
+                .put("slug", instance.slug())
+                .put("versionId", instance.versionId())
+                .put("versionType", instance.versionType())
+                .put("createdAt", instance.createdAt())
+                .put("lastPlayedAt", instance.lastPlayedAt())
+                .put("javaMajorVersion", instance.javaMajorVersion())
+                .put("javaComponent", instance.javaComponent())
+                .put("settings", instance.settings().toJson())
+                .put("running", running != null)
+                .put("launchPhase", state.phase().name().toLowerCase(Locale.ROOT));
+
+        if (running != null) {
+            json.put("pid", running.pid())
+                    .put("startedAt", running.startedAt())
+                    .put("javaExecutable", running.javaExecutable())
+                    .put("runningJavaMajorVersion", running.javaMajorVersion());
+        }
+        return json;
+    }
+
+    private JSONArray toVersionArray(List<AvailableVersion> versions) {
+        JSONArray array = new JSONArray();
+        for (AvailableVersion version : versions) {
+            array.put(new JSONObject()
+                    .put("id", version.id())
+                    .put("type", version.type())
+                    .put("releaseTime", version.releaseTime()));
+        }
+        return array;
+    }
+
+    /**
+     * Opens a directory in the desktop file manager. AWT's Desktop integration is unavailable on
+     * many Linux setups, so a per-platform command is used as a fallback.
+     */
+    static void openInFileManager(Path path) throws IOException {
+        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+            try {
+                Desktop.getDesktop().open(path.toFile());
+                return;
+            } catch (IOException ignored) {
+                // Fall through to the command-line opener.
+            }
+        }
+
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        List<String> command = os.contains("win")
+                ? List.of("explorer.exe", path.toString())
+                : os.contains("mac") || os.contains("darwin")
+                        ? List.of("open", path.toString())
+                        : List.of("xdg-open", path.toString());
+        new ProcessBuilder(command).start();
+    }
+}

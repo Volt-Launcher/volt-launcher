@@ -1,50 +1,84 @@
-export const versionEmoji = (t: string) =>
-    ({ release: "📦", snapshot: "🔬", old_beta: "⚗️", old_alpha: "⚔️" }[t] ?? "🎮");
+import { t } from "@/i18n";
+import { currentLocale } from "@/i18n";
 
-export const versionGradient = (t: string) =>
-    ({
-        release: "linear-gradient(135deg,#0d3a18,#184d22)",
-        snapshot: "linear-gradient(135deg,#0a2040,#001535)",
-        old_beta: "linear-gradient(135deg,#3a1a08,#5a2a10)",
-        old_alpha: "linear-gradient(135deg,#4d0f0f,#7a1a1a)",
-    }[t] ?? "linear-gradient(135deg,#0a1535,#122050)");
+export const versionEmoji = (type: string) =>
+  ({ release: "📦", snapshot: "🔬", old_beta: "⚗️", old_alpha: "⚔️" })[type] ?? "🎮";
 
-export const formatRelativeDate = (ts: number) => {
-    if (!ts) return "Nie gespielt";
-    const d = Date.now() - ts;
-    const m = Math.floor(d / 6e4);
-    const h = Math.floor(d / 36e5);
-    const dy = Math.floor(d / 864e5);
-    const w = Math.floor(dy / 7);
-    const mo = Math.floor(dy / 30);
-    if (m < 1) return "gerade eben";
-    if (m < 60) return `vor ${m}min`;
-    if (h < 24) return `vor ${h}h`;
-    if (dy < 7) return `vor ${dy}T`;
-    if (w < 5) return `vor ${w}W`;
-    return `vor ${mo}M`;
+export const versionGradient = (type: string) =>
+  ({
+    release: "linear-gradient(135deg,#0d3a18,#184d22)",
+    snapshot: "linear-gradient(135deg,#0a2040,#001535)",
+    old_beta: "linear-gradient(135deg,#3a1a08,#5a2a10)",
+    old_alpha: "linear-gradient(135deg,#4d0f0f,#7a1a1a)",
+  })[type] ?? "linear-gradient(135deg,#0a1535,#122050)";
+
+export const formatVersionType = (type: string) =>
+  ({ release: "Release", snapshot: "Snapshot", old_beta: "Beta", old_alpha: "Alpha" })[type] ?? type;
+
+/** Renders an absolute date in the active locale. */
+export const formatReleaseTime = (isoDate: string) => {
+  if (!isoDate) return t("common.unknown");
+  const date = new Date(isoDate);
+  return Number.isNaN(date.getTime())
+    ? isoDate
+    : date.toLocaleDateString(currentLocale.value === "de" ? "de-DE" : "en-GB");
 };
 
-export const formatVersionType = (t: string) =>
-    ({ release: "Release", snapshot: "Snapshot", old_beta: "Beta", old_alpha: "Alpha" }[t] ?? t);
-
-export const formatReleaseTime = (rt: string) => {
-    if (!rt) return "Unbekannt";
-    const d = new Date(rt);
-    return Number.isNaN(d.getTime()) ? rt : d.toLocaleDateString("de-DE");
+/** Localised "x ago" for a timestamp in milliseconds. */
+export const formatRelativeDate = (timestamp: number) => {
+  if (!timestamp) return t("time.never");
+  return formatRelativeFrom(Date.now() - timestamp);
 };
 
-// Parses compound loader version IDs like "fabric:26.1.2:0.19.2" → "Fabric 0.19.2 - 26.1.2"
+/** Localised "x ago" for an ISO date string. */
+export const formatRelativeIso = (isoDate: string) => {
+  if (!isoDate) return t("common.unknown");
+  const parsed = new Date(isoDate).getTime();
+  return Number.isNaN(parsed) ? t("common.unknown") : formatRelativeFrom(Date.now() - parsed);
+};
+
+const formatRelativeFrom = (elapsedMs: number) => {
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) return t("time.justNow");
+  if (minutes < 60) return t("time.minutesAgo", { n: minutes });
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("time.hoursAgo", { n: hours });
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return t("time.daysAgo", { n: days });
+  if (days < 30) return t("time.weeksAgo", { n: Math.floor(days / 7) });
+  if (days < 365) return t("time.monthsAgo", { n: Math.floor(days / 30) });
+  return t("time.yearsAgo", { n: Math.floor(days / 365) });
+};
+
+/** `fabric:1.21.1:0.16.9` → `Fabric 0.16.9 · 1.21.1`; plain ids pass through. */
 export const formatLoaderId = (id: string) => {
-    const parts = id.split(":");
-    if (parts.length !== 3) return id;
-    const [platform, mcVersion, loaderVersion] = parts;
-    const name = platform.charAt(0).toUpperCase() + platform.slice(1);
-    return `${name} ${loaderVersion} - ${mcVersion}`;
+  const parts = id.split(":");
+  if (parts.length !== 3) return id;
+  const platform = parts[0] ?? "";
+  const minecraftVersion = parts[1] ?? "";
+  const loaderVersion = parts[2] ?? "";
+  const name = platform.charAt(0).toUpperCase() + platform.slice(1);
+  return `${name} ${loaderVersion} · ${minecraftVersion}`;
+};
+
+/** The Minecraft version inside a possibly loader-qualified id. */
+export const minecraftVersionOf = (id: string) => {
+  const parts = id.split(":");
+  return parts.length >= 2 ? (parts[1] ?? id) : id;
+};
+
+/** The loader name inside a qualified id, or `null` for vanilla. */
+export const loaderOf = (id: string): string | null => {
+  const parts = id.split(":");
+  if (parts.length < 2) return null;
+  const loader = parts[0] ?? "";
+  return loader && loader !== "vanilla" ? loader : null;
 };
 
 export const handleImgError = (event: Event) => {
-    const img = event.target as HTMLImageElement;
-    const fb = img.dataset.fallbackSrc;
-    if (fb && img.src !== fb) img.src = fb;
+  const image = event.target as HTMLImageElement;
+  const fallback = image.dataset.fallbackSrc;
+  if (fallback && image.src !== fallback) image.src = fallback;
 };

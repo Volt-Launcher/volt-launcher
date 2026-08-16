@@ -17,8 +17,9 @@ const {
   isLoadingVersions,
   isLoadingLoaderVersions,
   requiresLoaderSelection,
-  platformOptions,
+  platforms,
   error,
+  t,
   showCreateModal,
   selectedVersion,
   formatVersionType,
@@ -36,6 +37,11 @@ const loaderVersionOptions = computed(() => loaderVersions.value.map((version) =
   value: version.id,
   label: formatLoaderId(version.id),
 })));
+
+const platformOptions = computed(() => platforms.value.map((platform) => ({
+  value: platform.id,
+  label: platform.displayName,
+})));
 </script>
 <template>
   <Teleport to="body">
@@ -46,7 +52,7 @@ const loaderVersionOptions = computed(() => loaderVersions.value.map((version) =
     >
       <div class="w-full max-w-[480px] rounded-[14px] border border-[var(--accent-border)] bg-[var(--surface-panel-strong)] shadow-[var(--shadow-modal)]">
         <div class="flex items-center justify-between border-b border-white/7 px-5 py-4">
-          <div class="text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">NEUES PROFIL ERSTELLEN</div>
+          <div class="text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">{{ t("profiles.createTitle") }}</div>
           <button
             type="button"
             class="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all duration-200 hover:bg-white/10 hover:text-white"
@@ -57,51 +63,51 @@ const loaderVersionOptions = computed(() => loaderVersions.value.map((version) =
         </div>
         <div class="flex flex-col gap-4 p-5">
           <div class="flex flex-col gap-1.5">
-            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">PROFILNAME</label>
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">{{ t("profiles.name") }}</label>
             <input
               v-model="newInstanceName"
               type="text"
-              placeholder="Mein Survival World"
+              :placeholder="t('profiles.namePlaceholder')"
               class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-[13px] py-2.5 text-[length:var(--text-md)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]"
               @keyup.enter="handleCreateInstance"
             />
           </div>
           <div class="flex flex-col gap-1.5">
-            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">PLATTFORM</label>
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">{{ t("profiles.platform") }}</label>
             <VoltSelect
               v-model="selectedPlatformId"
               :options="platformOptions"
-              placeholder="Plattform wählen"
+              :placeholder="t('profiles.platform')"
             />
           </div>
           <div class="flex flex-col gap-1.5">
-            <div class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">VERSIONSFILTER</div>
+            <div class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">{{ t("discover.filters") }}</div>
             <div class="mt-1.5 flex flex-wrap gap-2">
-              <VoltCheckbox v-model="includeSnapshots">Snapshots</VoltCheckbox>
-              <VoltCheckbox v-model="includeBetas">Betas</VoltCheckbox>
-              <VoltCheckbox v-model="includeAlphas">Alphas</VoltCheckbox>
+              <VoltCheckbox v-model="includeSnapshots">{{ t("profiles.showSnapshots") }}</VoltCheckbox>
+              <VoltCheckbox v-model="includeBetas">{{ t("profiles.showBetas") }}</VoltCheckbox>
+              <VoltCheckbox v-model="includeAlphas">{{ t("profiles.showAlphas") }}</VoltCheckbox>
             </div>
           </div>
           <div class="flex flex-col gap-1.5">
-            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">MINECRAFT VERSION</label>
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">{{ t("profiles.minecraftVersion") }}</label>
             <VoltSelect
               v-model="selectedMinecraftVersionId"
               :options="minecraftVersionOptions"
-              placeholder="Version wählen"
+              :placeholder="t('profiles.minecraftVersion')"
               :disabled="isLoadingVersions || !availableMinecraftVersions.length"
             />
-            <div class="mt-1.5 text-[length:var(--text-2xs)] text-white/40">{{ isLoadingVersions ? 'Lade Versionen…' : `${availableMinecraftVersions.length} Versionen verfügbar` }}</div>
+            <div class="mt-1.5 text-[length:var(--text-2xs)] text-white/40">{{ isLoadingVersions ? t("common.loading") : `${availableMinecraftVersions.length} ${t("common.versions")}` }}</div>
           </div>
           <div v-if="requiresLoaderSelection" class="flex flex-col gap-1.5">
-            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">LOADER VERSION</label>
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">{{ t("profiles.loaderVersion") }}</label>
             <VoltSelect
               v-model="selectedLoaderVersionId"
               :options="loaderVersionOptions"
-              placeholder="Loader-Version wählen"
+              :placeholder="t('profiles.loaderVersion')"
               :disabled="isLoadingLoaderVersions || !selectedMinecraftVersionId || !loaderVersions.length"
             />
             <div class="mt-1.5 text-[length:var(--text-2xs)] text-white/40">
-              {{ isLoadingLoaderVersions ? 'Lade Loader-Versionen…' : `${loaderVersions.length} Loader-Versionen verfügbar` }}
+              {{ isLoadingLoaderVersions ? t("common.loading") : `${loaderVersions.length} ${t("common.versions")}` }}
             </div>
           </div>
           <div class="flex flex-col gap-1.5">
@@ -118,7 +124,7 @@ const loaderVersionOptions = computed(() => loaderVersions.value.map((version) =
               class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all duration-200 hover:bg-white/10"
               @click="showCreateModal = false"
             >
-              Abbrechen
+              {{ t("common.cancel") }}
             </button>
             <button
               type="button"
@@ -126,7 +132,7 @@ const loaderVersionOptions = computed(() => loaderVersions.value.map((version) =
               :disabled="isCreatingInstance || !selectedMinecraftVersionId || (requiresLoaderSelection && !selectedLoaderVersionId) || !newInstanceName.trim()"
               @click="handleCreateInstance"
             >
-              {{ isCreatingInstance ? 'Erstelle…' : 'Profil erstellen' }}
+              {{ isCreatingInstance ? t("common.installing") : t("profiles.create") }}
             </button>
           </div>
         </div>

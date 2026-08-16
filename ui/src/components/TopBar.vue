@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { Icon } from "@iconify/vue";
 import { useLauncher } from '@/composables/useLauncher';
 const {
+  t,
   authData,
   isAuthenticating,
   error,
@@ -48,13 +49,13 @@ const onClickOutside = (e: MouseEvent) => {
 onMounted(() => document.addEventListener('click', onClickOutside));
 onBeforeUnmount(() => document.removeEventListener('click', onClickOutside));
 
-const navItems = [
-  { id: 'home', label: 'PLAY', icon: 'lucide:play' },
-  { id: 'profiles', label: 'PROFILES', icon: 'lucide:layers' },
-  { id: 'skins', label: 'SKINS', icon: 'lucide:shirt' },
-  { id: 'discover', label: 'DISCOVER', icon: 'lucide:search' },
-  { id: 'settings', label: 'SETTINGS', icon: 'lucide:settings' },
-] as const;
+const navItems = computed(() => [
+  { id: 'home', label: t('nav.home'), icon: 'lucide:play' },
+  { id: 'profiles', label: t('nav.profiles'), icon: 'lucide:layers' },
+  { id: 'skins', label: t('nav.skins'), icon: 'lucide:shirt' },
+  { id: 'discover', label: t('nav.discover'), icon: 'lucide:search' },
+  { id: 'settings', label: t('nav.settings'), icon: 'lucide:settings' },
+]);
 
 const isMac = navigator.userAgent.toLowerCase().includes('mac');
 </script>

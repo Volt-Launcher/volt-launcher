@@ -5,6 +5,7 @@ import { useLauncher } from '@/composables/useLauncher';
 import type { LauncherInstance, ContentEntry, ContentType, InstanceSettings } from '@/composables/useLauncher';
 
 const {
+  t,
   authData,
   activeTab,
   showCreateModal,
@@ -178,7 +179,7 @@ async function applyAddedFiles(files: FileList | null) {
   const hadFiles = !!files && files.length > 0;
   const paths = extractPaths(files);
   if (paths.length === 0) {
-    if (hadFiles) error.value = "Datei-Pfad konnte nicht ermittelt werden.";
+    if (hadFiles) error.value = t("content.addFailed");
     return;
   }
   const ok = await addInstanceContent(managingInstance.value.name, type, paths);
@@ -317,8 +318,8 @@ async function saveSettings() {
             <Icon icon="lucide:plus" class="size-4" />
           </div>
           <div class="text-center">
-            <div class="text-[length:var(--text-base)] font-semibold text-white">Neues Profil</div>
-            <div class="text-[length:var(--text-2xs)] text-white/30">Erstellen oder importieren</div>
+            <div class="text-[length:var(--text-base)] font-semibold text-white">{{ t("profiles.create") }}</div>
+            <div class="text-[length:var(--text-2xs)] text-white/30">{{ t("profiles.emptyHint") }}</div>
           </div>
         </button>
 
@@ -556,7 +557,7 @@ async function saveSettings() {
                   <button type="button"
                     class="inline-flex items-center gap-1.5 rounded-[6px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-2.5 py-1.5 text-[length:var(--text-2xs)] font-semibold tracking-[0.06em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)]"
                     @click="fileInput?.click()">
-                    <Icon icon="lucide:plus" class="size-3" />Hinzufügen
+                    <Icon icon="lucide:plus" class="size-3" />{{ t("content.addFiles") }}
                   </button>
                   <button type="button"
                     class="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all hover:bg-white/10 hover:text-white"
@@ -573,7 +574,7 @@ async function saveSettings() {
                 <div v-if="isDragging"
                   class="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--accent-border-strong)] bg-[var(--accent-bg-soft)] backdrop-blur-sm">
                   <Icon icon="lucide:download" class="size-7 text-[var(--primary)]" />
-                  <span class="text-[length:var(--text-sm)] font-semibold text-[var(--primary)]">Dateien hier ablegen</span>
+                  <span class="text-[length:var(--text-sm)] font-semibold text-[var(--primary)]">{{ t("content.addFiles") }}</span>
                 </div>
 
                 <div class="flex-1 overflow-y-auto p-2.5">
@@ -581,8 +582,8 @@ async function saveSettings() {
                   <div v-else-if="contentItems.length === 0"
                     class="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 text-center">
                     <Icon icon="lucide:inbox" class="size-8 text-white/20" />
-                    <div class="text-[length:var(--text-sm)] text-white/40">Noch keine Dateien.</div>
-                    <div class="text-[length:var(--text-2xs)] text-white/25">Dateien hierher ziehen oder „Hinzufügen“ klicken.</div>
+                    <div class="text-[length:var(--text-sm)] text-white/40">{{ t("content.empty") }}</div>
+                    <div class="text-[length:var(--text-2xs)] text-white/25">{{ t("content.emptyHint") }}</div>
                   </div>
                   <div v-else class="flex flex-col gap-1.5">
                     <div v-for="item in contentItems" :key="item.fileName"
@@ -607,7 +608,7 @@ async function saveSettings() {
                         </button>
                         <button type="button"
                           class="flex size-7 items-center justify-center rounded-md border border-white/8 bg-white/[0.03] text-white/35 transition-all hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
-                          title="Löschen" @click="onDeleteContent(item)">
+                          :title="t('common.delete')" @click="onDeleteContent(item)">
                           <Icon icon="lucide:trash-2" class="size-3.5" />
                         </button>
                       </div>
@@ -680,13 +681,13 @@ async function saveSettings() {
                     <button type="button"
                       class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all hover:bg-white/10"
                       @click="activePanel = null">
-                      Abbrechen
+                      {{ t("common.cancel") }}
                     </button>
                     <button type="button"
                       class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                       :disabled="isSavingSettings" @click="saveSettings">
                       <Icon :icon="isSavingSettings ? 'lucide:loader-2' : 'lucide:save'" class="size-[12px]" :class="isSavingSettings ? 'animate-spin' : ''" />
-                      Speichern
+                      {{ t("common.save") }}
                     </button>
                   </div>
                 </div>
@@ -702,19 +703,19 @@ async function saveSettings() {
                     class="flex items-center gap-3 rounded-lg border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-[length:var(--text-sm)] text-white/70 transition-all hover:bg-white/8 hover:text-white"
                     @click="startEdit(managingInstance)">
                     <Icon icon="lucide:pencil" class="size-3.5 shrink-0 text-white/40" />
-                    <span>Umbenennen</span>
+                    <span>{{ t("common.rename") }}</span>
                   </button>
                   <button type="button"
                     class="flex items-center gap-3 rounded-lg border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-[length:var(--text-sm)] text-white/70 transition-all hover:bg-white/8 hover:text-white"
                     @click="openFolder(managingInstance)">
                     <Icon icon="lucide:folder-open" class="size-3.5 shrink-0 text-white/40" />
-                    <span>Ordner öffnen</span>
+                    <span>{{ t("profiles.openFolder") }}</span>
                   </button>
                   <button type="button"
                     class="flex items-center gap-3 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3.5 py-2.5 text-[length:var(--text-sm)] text-[var(--danger-text,#f87171)] transition-all hover:bg-red-500/15"
                     :disabled="managingInstance.running" @click="startDelete(managingInstance)">
                     <Icon icon="lucide:trash-2" class="size-3.5 shrink-0" />
-                    <span>Löschen</span>
+                    <span>{{ t("common.delete") }}</span>
                   </button>
                 </div>
               </div>
@@ -751,13 +752,13 @@ async function saveSettings() {
             <button type="button"
               class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all duration-200 hover:bg-white/10"
               @click="showEditModal = false">
-              Abbrechen
+              {{ t("common.cancel") }}
             </button>
             <button type="button"
               class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="!editNewName.trim() || editNewName.trim() === editTargetInstance.name"
               @click="handleRenameInstance(editTargetInstance!.name, editNewName)">
-              Speichern
+              {{ t("common.save") }}
             </button>
           </div>
         </div>
@@ -773,7 +774,7 @@ async function saveSettings() {
       <div
         class="w-full max-w-[400px] rounded-[14px] border border-white/10 bg-[var(--surface-panel-strong)] shadow-[var(--shadow-modal)]">
         <div class="flex items-center justify-between border-b border-white/7 px-5 py-4">
-          <div class="text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">PROFIL LÖSCHEN</div>
+          <div class="text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">{{ t("profiles.deleteTitle") }}</div>
           <button type="button"
             class="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all duration-200 hover:bg-white/10 hover:text-white"
             @click="showDeleteModal = false">
@@ -782,19 +783,18 @@ async function saveSettings() {
         </div>
         <div class="flex flex-col gap-4 p-5">
           <p class="text-[length:var(--text-base)] text-white/70">
-            Profil <span class="font-semibold text-white">{{ deleteTargetInstance.name }}</span> wirklich löschen? Diese
-            Aktion kann nicht rückgängig gemacht werden.
+            {{ t("profiles.deleteConfirm", { name: deleteTargetInstance.name }) }}
           </p>
           <div class="flex justify-end gap-2">
             <button type="button"
               class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all duration-200 hover:bg-white/10"
               @click="showDeleteModal = false">
-              Abbrechen
+              {{ t("common.cancel") }}
             </button>
             <button type="button"
               class="inline-flex items-center gap-1.5 rounded-[7px] border border-red-500/40 bg-red-500/20 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-red-400 transition-all duration-200 hover:bg-red-500/30"
               @click="handleDeleteInstance(deleteTargetInstance!.name)">
-              <Icon icon="lucide:trash-2" class="size-[11px]" />Löschen
+              <Icon icon="lucide:trash-2" class="size-[11px]" />{{ t("common.delete") }}
             </button>
           </div>
         </div>

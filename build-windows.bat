@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set VERSION=0.1.0
+set VERSION=0.2.0
 set APP_NAME=VoltLauncher
 set BINARY_NAME=volt-launcher
 set OUTPUT_DIR=build\windows
@@ -26,14 +26,14 @@ call pnpm exec electron-builder --win --dir
 cd ..
 
 REM Clean up builder metadata and other platform artifacts
-del /q "src\main\resources\electron-bin\builder-debug.yml" 2>nul
-del /q "src\main\resources\electron-bin\builder-effective-config.yaml" 2>nul
-if exist "src\main\resources\electron-bin\mac" rmdir /s /q "src\main\resources\electron-bin\mac"
-if exist "src\main\resources\electron-bin\mac-arm64" rmdir /s /q "src\main\resources\electron-bin\mac-arm64"
-if exist "src\main\resources\electron-bin\linux-unpacked" rmdir /s /q "src\main\resources\electron-bin\linux-unpacked"
+del /q "volt-app\src\main\resources\electron-bin\builder-debug.yml" 2>nul
+del /q "volt-app\src\main\resources\electron-bin\builder-effective-config.yaml" 2>nul
+if exist "volt-app\src\main\resources\electron-bin\mac" rmdir /s /q "volt-app\src\main\resources\electron-bin\mac"
+if exist "volt-app\src\main\resources\electron-bin\mac-arm64" rmdir /s /q "volt-app\src\main\resources\electron-bin\mac-arm64"
+if exist "volt-app\src\main\resources\electron-bin\linux-unpacked" rmdir /s /q "volt-app\src\main\resources\electron-bin\linux-unpacked"
 
-if not exist "src\main\resources\electron-bin\%ELECTRON_DIR%" (
-    echo ERROR: %ELECTRON_DIR% not found in src\main\resources\electron-bin!
+if not exist "volt-app\src\main\resources\electron-bin\%ELECTRON_DIR%" (
+    echo ERROR: %ELECTRON_DIR% not found in volt-app\src\main\resources\electron-bin!
     exit /b 1
 )
 
@@ -55,10 +55,10 @@ REM Copy native binary
 copy "target\%BINARY_NAME%.exe" "%OUTPUT_DIR%\%BINARY_NAME%.exe"
 
 REM Copy electron binary alongside main binary
-xcopy /e /i /q "src\main\resources\electron-bin\%ELECTRON_DIR%" "%OUTPUT_DIR%\electron\%ELECTRON_DIR%\"
+xcopy /e /i /q "volt-app\src\main\resources\electron-bin\%ELECTRON_DIR%" "%OUTPUT_DIR%\electron\%ELECTRON_DIR%\"
 
 REM Clean electron-bin after copying
-if exist "src\main\resources\electron-bin\win-unpacked" rmdir /s /q "src\main\resources\electron-bin\win-unpacked"
+if exist "volt-app\src\main\resources\electron-bin\win-unpacked" rmdir /s /q "volt-app\src\main\resources\electron-bin\win-unpacked"
 
 echo.
 echo === Build complete ===

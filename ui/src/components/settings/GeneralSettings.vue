@@ -1,60 +1,73 @@
 <script setup lang="ts">
-import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
-import { accentColors, generalToggles } from "./settingsData";
+import { accentColors } from "./settingsData";
+import SettingsPanel from "./SettingsPanel.vue";
+import SettingsToggle from "./SettingsToggle.vue";
+import SettingsRow from "./SettingsRow.vue";
 
-const { accentColor, toggleStates, setAccentColor } = useLauncher();
+const { t, settings, accentColor, locales } = useLauncher();
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <!-- Accent color -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 flex items-center gap-[7px] text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">
-        <Icon icon="lucide:palette" class="size-[13px]" />ACCENT COLOR
-      </div>
-      <div class="mb-[14px] text-[length:var(--text-base)] leading-[1.55] text-white/60">
-        Choose your preferred accent color for the launcher
-      </div>
-      <div class="flex flex-wrap gap-[7px]">
-        <button
-          v-for="c in accentColors"
-          :key="c.value"
-          type="button"
-          class="inline-block h-[30px] w-[30px] rounded-[7px] border-2 border-white/20 transition-transform duration-200 hover:scale-110"
-          :class="[c.class, accentColor === c.value ? '!border-white shadow-[var(--shadow-accent-sm)]' : '']"
-          @click="setAccentColor(c.value)"
-        />
-      </div>
-    </div>
-
-    <!-- General toggles -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">OPTIONS</div>
-      <div class="grid grid-cols-1 gap-[9px] md:grid-cols-2">
-        <div
-          v-for="t in generalToggles"
-          :key="t.key"
-          class="flex items-center justify-between rounded-[10px] border border-white/10 bg-[var(--surface-input-muted)] px-[15px] py-[13px]"
-        >
-          <div>
-            <div class="mb-[3px] text-[length:var(--text-base-plus)] font-semibold text-white">{{ t.name }}</div>
-            <div class="text-[length:var(--text-2xs-plus)] leading-[1.45] text-white/60">{{ t.sub }}</div>
-          </div>
+    <SettingsPanel :title="t('settings.language')" :description="t('settings.languageHint')" icon="lucide:languages">
+      <SettingsRow :label="t('settings.language')">
+        <div class="flex gap-2">
           <button
+            v-for="option in locales"
+            :key="option.id"
             type="button"
-            class="relative h-[22px] w-[40px] shrink-0 rounded-full transition-colors duration-300"
-            :class="toggleStates[t.key as keyof typeof toggleStates] ? 'bg-[var(--primary)]' : 'bg-white/10'"
-            :aria-pressed="toggleStates[t.key as keyof typeof toggleStates]"
-            @click="(toggleStates[t.key as keyof typeof toggleStates] as boolean) = !toggleStates[t.key as keyof typeof toggleStates]"
+            class="rounded-lg border px-3.5 py-1.5 text-[length:var(--text-sm)] font-semibold transition-all duration-200"
+            :class="settings.language === option.id
+              ? 'border-[var(--accent-border-active)] bg-[var(--accent-bg-strong)] text-[var(--primary)]'
+              : 'border-white/10 bg-white/[0.03] text-white/60 hover:bg-white/[0.07]'"
+            @click="settings.language = option.id"
           >
-            <span
-              class="absolute top-[3px] h-4 w-4 rounded-full transition-all duration-300"
-              :class="toggleStates[t.key as keyof typeof toggleStates] ? 'left-[21px] bg-white' : 'left-[3px] bg-white/40'"
-            />
+            {{ option.label }}
           </button>
         </div>
+      </SettingsRow>
+    </SettingsPanel>
+
+    <SettingsPanel :title="t('settings.accentColor')" :description="t('settings.accentColorHint')" icon="lucide:palette">
+      <div class="flex flex-wrap gap-[7px]">
+        <button
+          v-for="colour in accentColors"
+          :key="colour"
+          type="button"
+          class="size-[30px] rounded-[7px] border-2 transition-transform duration-200 hover:scale-110"
+          :class="accentColor === colour ? 'border-white shadow-[var(--shadow-accent-sm)]' : 'border-white/20'"
+          :style="{ background: colour }"
+          :aria-label="colour"
+          :aria-pressed="accentColor === colour"
+          @click="accentColor = colour"
+        />
       </div>
-    </div>
+    </SettingsPanel>
+
+    <SettingsPanel :title="t('settings.options')" icon="lucide:sliders-horizontal">
+      <div class="grid grid-cols-1 gap-[9px] md:grid-cols-2">
+        <SettingsToggle
+          v-model="settings.discordPresence"
+          :label="t('settings.discordPresence')"
+          :description="t('settings.discordPresenceHint')"
+        />
+        <SettingsToggle
+          v-model="settings.hideLauncherOnLaunch"
+          :label="t('settings.hideLauncher')"
+          :description="t('settings.hideLauncherHint')"
+        />
+        <SettingsToggle
+          v-model="settings.openLogsOnLaunch"
+          :label="t('settings.openLogs')"
+          :description="t('settings.openLogsHint')"
+        />
+        <SettingsToggle
+          v-model="settings.autoUpdate"
+          :label="t('settings.autoUpdate')"
+          :description="t('settings.autoUpdateHint')"
+        />
+      </div>
+    </SettingsPanel>
   </div>
 </template>

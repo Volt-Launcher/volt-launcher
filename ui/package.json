@@ -22,7 +22,7 @@
     "appId": "app.voltlauncher",
     "productName": "VoltLauncher",
     "directories": {
-      "output": "../src/main/resources/electron-bin"
+      "output": "../volt-app/src/main/resources/electron-bin"
     },
     "files": [
       "dist/**/*",

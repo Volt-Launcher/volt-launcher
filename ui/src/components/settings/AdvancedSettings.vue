@@ -1,80 +1,137 @@
 <script setup lang="ts">
+import { onMounted, ref } from "vue";
 import { Icon } from "@iconify/vue";
-import { ref } from "vue";
 import { useLauncher } from "@/composables/useLauncher";
-import { advancedToggles } from "./settingsData";
+import SettingsPanel from "./SettingsPanel.vue";
 
-const { toggleStates } = useLauncher();
+const {
+  t,
+  settings,
+  directories,
+  loadDirectories,
+  openDirectory,
+  resetSettings,
+  launcherVersion,
+  launcherMessage,
+} = useLauncher();
 
-const simultaneousDownloads = ref(5);
-const concurrentIO = ref(10);
+const confirmingReset = ref(false);
+
+onMounted(() => void loadDirectories());
+
+/** Copies a short environment summary people can paste into a bug report. */
+const copyDebugInfo = async () => {
+  const summary = [
+    `VoltLauncher ${launcherVersion.value || "0.2.0"}`,
+    `UA: ${navigator.userAgent}`,
+    `Language: ${settings.value.language}`,
+    `Bridge: ${settings.value.curseForgeBridgeUrl}`,
+    ...directories.value.map((directory) => `${directory.label}: ${directory.path}`),
+  ].join("\n");
+
+  try {
+    await navigator.clipboard.writeText(summary);
+    launcherMessage.value = t("settings.debugCopied");
+  } catch {
+    // Clipboard access can be denied; the paths are visible on screen either way.
+  }
+};
+
+const performReset = async () => {
+  confirmingReset.value = false;
+  await resetSettings();
+};
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <!-- Performance sliders -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 flex items-center gap-[7px] text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">
-        <Icon icon="lucide:gauge" class="size-[13px]" />PERFORMANCE
-      </div>
-      <div class="mb-[14px] text-[length:var(--text-base)] leading-[1.55] text-white/60">
-        Configure download and I/O concurrency
-      </div>
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <VoltSlider v-model="simultaneousDownloads" :min="1" :max="10" :step="1" label="Simultaneous Downloads" />
-        <VoltSlider v-model="concurrentIO" :min="1" :max="20" :step="1" label="Concurrent I/O" />
-      </div>
-    </div>
+    <SettingsPanel
+      :title="t('settings.performance')"
+      :description="t('settings.performanceHint')"
+      icon="lucide:gauge"
+    >
+      <VoltSlider
+        v-model="settings.maxConcurrentDownloads"
+        :min="1"
+        :max="16"
+        :step="1"
+        :label="t('settings.concurrentDownloads')"
+      />
+    </SettingsPanel>
 
-    <!-- Advanced toggles -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">ADVANCED OPTIONS</div>
-      <div class="grid grid-cols-1 gap-[9px] md:grid-cols-2">
+    <SettingsPanel
+      :title="t('settings.directories')"
+      :description="t('settings.directoriesHint')"
+      icon="lucide:folder-tree"
+    >
+      <div class="flex flex-col gap-2">
         <div
-          v-for="t in advancedToggles"
-          :key="t.key"
-          class="flex items-center justify-between rounded-[10px] border border-white/10 bg-[var(--surface-input-muted)] px-[15px] py-[13px]"
+          v-for="directory in directories"
+          :key="directory.id"
+          class="flex flex-wrap items-center gap-3 rounded-[10px] border border-white/10 bg-[var(--surface-input-muted)] px-[15px] py-[11px]"
         >
-          <div>
-            <div class="mb-[3px] text-[length:var(--text-base-plus)] font-semibold text-white">{{ t.name }}</div>
-            <div class="text-[length:var(--text-2xs-plus)] leading-[1.45] text-white/60">{{ t.sub }}</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-[length:var(--text-base-plus)] font-semibold text-white">{{ directory.label }}</div>
+            <div class="truncate font-mono text-[length:var(--text-2xs)] text-white/35">{{ directory.path }}</div>
           </div>
           <button
             type="button"
-            class="relative h-[22px] w-[40px] shrink-0 rounded-full transition-colors duration-300"
-            :class="toggleStates[t.key as keyof typeof toggleStates] ? 'bg-[var(--primary)]' : 'bg-white/10'"
-            :aria-pressed="toggleStates[t.key as keyof typeof toggleStates]"
-            @click="(toggleStates[t.key as keyof typeof toggleStates] as boolean) = !toggleStates[t.key as keyof typeof toggleStates]"
+            class="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] border border-white/10 bg-white/5 px-2.5 py-[5px] text-[length:var(--text-sm)] font-semibold text-white/50 transition-all duration-200 hover:bg-white/10 hover:text-white/90"
+            @click="openDirectory(directory.id)"
           >
-            <span
-              class="absolute top-[3px] h-4 w-4 rounded-full transition-all duration-300"
-              :class="toggleStates[t.key as keyof typeof toggleStates] ? 'left-[21px] bg-white' : 'left-[3px] bg-white/40'"
-            />
+            <Icon icon="lucide:folder-open" class="size-[11px]" />
+            {{ t("common.open") }}
           </button>
         </div>
       </div>
-    </div>
+    </SettingsPanel>
 
-    <!-- Debug -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">DEBUG</div>
-      <div class="mb-[14px] text-[length:var(--text-base)] leading-[1.55] text-white/60">
-        Diagnostic tools and log access
-      </div>
+    <SettingsPanel :title="t('settings.debug')" :description="t('settings.debugHint')" icon="lucide:bug">
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/50 transition-all duration-200 hover:bg-white/10"
+          class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold text-white/50 transition-all duration-200 hover:bg-white/10 hover:text-white/90"
+          @click="openDirectory('logs')"
         >
-          <Icon icon="lucide:folder-open" class="size-[11px]" />Open Logs Folder
+          <Icon icon="lucide:folder-open" class="size-[11px]" />{{ t("settings.openLogsFolder") }}
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/50 transition-all duration-200 hover:bg-white/10"
+          class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold text-white/50 transition-all duration-200 hover:bg-white/10 hover:text-white/90"
+          @click="copyDebugInfo"
         >
-          <Icon icon="lucide:clipboard-copy" class="size-[11px]" />Copy Debug Info
+          <Icon icon="lucide:clipboard-copy" class="size-[11px]" />{{ t("settings.copyDebugInfo") }}
         </button>
       </div>
-    </div>
+    </SettingsPanel>
+
+    <SettingsPanel :title="t('settings.reset')" icon="lucide:rotate-ccw">
+      <div v-if="!confirmingReset">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold text-[var(--danger-text)] transition-all duration-200 hover:brightness-125"
+          @click="confirmingReset = true"
+        >
+          <Icon icon="lucide:rotate-ccw" class="size-[11px]" />{{ t("settings.reset") }}
+        </button>
+      </div>
+      <div v-else class="flex flex-wrap items-center gap-3">
+        <span class="text-[length:var(--text-base)] text-white/70">{{ t("settings.resetConfirm") }}</span>
+        <button
+          type="button"
+          class="rounded-[7px] border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold text-[var(--danger-text)] transition-all duration-200 hover:brightness-125"
+          @click="performReset"
+        >
+          {{ t("common.delete") }}
+        </button>
+        <button
+          type="button"
+          class="rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold text-white/60 transition-all duration-200 hover:bg-white/10"
+          @click="confirmingReset = false"
+        >
+          {{ t("common.cancel") }}
+        </button>
+      </div>
+    </SettingsPanel>
   </div>
 </template>

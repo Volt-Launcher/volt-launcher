@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
 import SkinModel from "@/components/SkinModel.vue";
 
 const {
+  t,
   authData,
   isAuthenticating,
   isLaunching,
@@ -17,32 +19,32 @@ const {
   handleStop,
 } = useLauncher();
 
-const newsItems = [
+const newsItems = computed(() => [
   {
     emoji: "🚀",
-    title: "Launcher v1.0.0 Release",
-    description: "Neues Top-Nav-Design, Discover-Tab und Status Bar jetzt live.",
-    date: "05. April 2026",
+    title: t("home.news.releaseTitle"),
+    description: t("home.news.releaseBody"),
+    date: "2026-04-05",
     badge: "UPDATE",
     badgeClass: "border-[var(--accent-border)] bg-[var(--accent-bg)] text-[var(--primary)]",
   },
   {
-    emoji: "✨",
-    title: "Oster Collection 2026",
-    description: "Animierte Cloaks und Easter Skins – nur für kurze Zeit!",
-    date: "03. April 2026",
-    badge: "SHOP",
+    emoji: "🔥",
+    title: t("home.news.providersTitle"),
+    description: t("home.news.providersBody"),
+    date: "2026-04-03",
+    badge: "DISCOVER",
     badgeClass: "border-[var(--accent-border-soft)] bg-[rgba(139,92,246,0.15)] text-[var(--violet)]",
   },
   {
-    emoji: "🎉",
-    title: "Heaven Collection Drop",
-    description: "Limitierte Belohnungen bis Ende April.",
-    date: "01. April 2026",
-    badge: "EVENT",
+    emoji: "☕",
+    title: t("home.news.javaTitle"),
+    description: t("home.news.javaBody"),
+    date: "2026-04-01",
+    badge: "SETTINGS",
     badgeClass: "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--accent)]",
   },
-] as const;
+]);
 </script>
 
 <template>
@@ -62,7 +64,7 @@ const newsItems = [
         <!-- skin model + username -->
         <div class="relative z-10 flex flex-1 flex-col items-center justify-center overflow-hidden">
           <div class="mb-1 text-[length:var(--text-xl)] font-bold tracking-[0.14em] text-white">
-            {{ authData ? authData.username.toUpperCase() : "PLAYER" }}
+            {{ authData ? authData.username : t("home.player") }}
           </div>
 
           <div class="relative flex items-center justify-center">
@@ -80,25 +82,24 @@ const newsItems = [
           <button v-if="!authData" type="button"
             class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-5 py-2.5 text-[length:var(--text-sm)] font-bold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)] hover:shadow-[var(--shadow-accent-md)] disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="isAuthenticating" @click="handleLogin">
-            <Icon icon="lucide:log-in" class="size-[11px]" />{{ isAuthenticating ? "WAITING...." : "LOGIN" }}
+            <Icon icon="lucide:log-in" class="size-[11px]" />{{ isAuthenticating ? t("home.waiting") : t("home.login") }}
           </button>
 
           <button v-else-if="selectedInstance?.running" type="button"
             class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-5 py-2.5 text-[length:var(--text-sm)] font-bold tracking-[0.07em] text-[var(--danger-text)] transition-all duration-200 hover:shadow-[var(--shadow-danger-xs)] disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="isLaunching" @click="handleStop">
-            <Icon icon="lucide:square" class="size-[11px]" />STOP
+            <Icon icon="lucide:square" class="size-[11px]" />{{ t("home.stop") }}
           </button>
 
           <button v-else-if="selectedInstance" type="button"
             class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--accent-border-strong)] bg-[var(--primary)] px-5 py-2.5 text-[length:var(--text-sm)] font-bold tracking-[0.07em] text-white shadow-[var(--shadow-accent-md)] transition-all duration-200 hover:shadow-[var(--shadow-accent-lg)] disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="isLaunching || !selectedInstance" @click="handleLaunch">
-            <Icon icon="lucide:play" class="size-[11px]" />{{ !selectedInstance ? "NO PROFILE SELECTED" : isLaunching ?
-              "STARTING..." : "LAUNCH" }}
+            <Icon icon="lucide:play" class="size-[11px]" />{{ !selectedInstance ? t("home.noProfileSelected") : isLaunching ? t("home.starting") : t("home.launch") }}
           </button>
 
           <div v-if="selectedInstance" class="mt-0.5 flex flex-wrap gap-3 text-[length:var(--text-xs)] text-white/50  rounded-xl border border-white/8 bg-[var(--surface-panel-strong)] px-4 py-3 backdrop-blur-xl">
             <span v-if="selectedInstance" class="inline-flex items-center gap-1">
-              <Icon icon="lucide:layers" class="size-[11px]" />{{ selectedInstance ? formatLoaderId(selectedInstance.versionId) : "Version unbekannt" }}
+              <Icon icon="lucide:layers" class="size-[11px]" />{{ selectedInstance ? formatLoaderId(selectedInstance.versionId) : t("home.unknownVersion") }}
             </span>
             <span v-if="selectedInstance" class="inline-flex items-center gap-1">
               <Icon icon="lucide:cpu" class="size-[11px]" />Java {{ selectedInstance?.javaMajorVersion || "N/A" }}
@@ -116,8 +117,7 @@ const newsItems = [
         class="w-150 flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--surface-panel)]">
         <div class="flex shrink-0 items-center gap-2 border-b border-white/7 px-4 py-3">
           <Icon icon="lucide:newspaper" class="size-[13px] text-[var(--primary)]" />
-          <span class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/50">NEWS, UPDATES &
-            BLOG</span>
+          <span class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/50 uppercase">{{ t("home.newsTitle") }}</span>
         </div>
 
         <div class="flex flex-1 flex-col gap-2 overflow-y-scroll p-2.5">

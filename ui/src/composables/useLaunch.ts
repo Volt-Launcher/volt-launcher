@@ -1,6 +1,7 @@
 import { ref } from "vue";
-import { apiFetch } from "./api";
+import { apiGet, apiSend, errorMessage } from "./api";
 import { error, launcherMessage } from "./state";
+import { t } from "@/i18n";
 import type { LaunchPhase } from "./types";
 import { useInstances } from "./useInstances";
 
@@ -13,102 +14,131 @@ const launchMessage = ref<string | null>(null);
 let launchPollInterval: ReturnType<typeof window.setInterval> | null = null;
 
 export const stopLaunchPolling = () => {
-    if (launchPollInterval !== null) { window.clearInterval(launchPollInterval); launchPollInterval = null; }
+  if (launchPollInterval !== null) {
+    window.clearInterval(launchPollInterval);
+    launchPollInterval = null;
+  }
 };
+
+interface LaunchStatus {
+  success: boolean;
+  phase: LaunchPhase;
+  message: string | null;
+  instanceName?: string;
+  version?: string;
+  pid?: number;
+  javaMajorVersion?: number;
+}
 
 const pollLaunchStatus = async (instanceName: string) => {
-    try {
-        const d = await apiFetch<{
-            success: boolean; phase: LaunchPhase; message?: string;
-            instanceName?: string; version?: string; pid?: number;
-            javaMajorVersion?: number; error?: string;
-        }>(`/api/instances/${encodeURIComponent(instanceName)}/launch-status`);
+  try {
+    const status = await apiGet<LaunchStatus>(
+      `/api/instances/${encodeURIComponent(instanceName)}/launch-status`,
+    );
 
-        launchPhase.value = d.phase;
-        launchMessage.value = d.message ?? null;
+    launchPhase.value = status.phase;
+    launchMessage.value = status.message;
 
-        if (d.phase === "running") {
-            isLaunching.value = false;
-            launcherMessage.value = [
-                d.instanceName ?? instanceName,
-                d.version && `mit ${d.version}`,
-                d.javaMajorVersion && `Java ${d.javaMajorVersion}`,
-                d.pid && `PID ${d.pid}`,
-            ].filter(Boolean).join(" ") + " gestartet.";
-            stopLaunchPolling();
-            await loadInstances();
-        } else if (d.phase === "failed") {
-            isLaunching.value = false;
-            error.value = d.message ?? "Launch fehlgeschlagen";
-            stopLaunchPolling();
-        }
-    } catch (e) {
-        error.value = e instanceof Error ? e.message : "Launch-Status konnte nicht abgefragt werden";
-        isLaunching.value = false;
-        stopLaunchPolling();
+    if (status.phase === "running") {
+      isLaunching.value = false;
+      launcherMessage.value = t("launch.started", { name: status.instanceName ?? instanceName });
+      stopLaunchPolling();
+      await loadInstances();
+    } else if (status.phase === "failed") {
+      isLaunching.value = false;
+      error.value = status.message ?? t("launch.failed");
+      stopLaunchPolling();
     }
+  } catch (e) {
+    error.value = errorMessage(e, t("launch.failed"));
+    isLaunching.value = false;
+    stopLaunchPolling();
+  }
 };
 
-const handleLaunch = async () => {
-    if (!selectedInstance.value) return;
-    const instanceName = selectedInstance.value.name;
-    try {
-        isLaunching.value = true;
-        launchPhase.value = "installing";
-        launchMessage.value = "Starte Installation...";
-        error.value = null;
+/** Accepts an explicit profile name, or nothing when wired directly to a click handler. */
+const resolveInstanceName = (candidate?: unknown): string | undefined =>
+  typeof candidate === "string" && candidate ? candidate : selectedInstance.value?.name;
 
-        const d = await apiFetch<{ success: boolean; error?: string }>(
-            `/api/instances/${encodeURIComponent(instanceName)}/launch`,
-            { method: "POST" }
-        );
-        if (!d.success) {
-            error.value = d.error ?? "Minecraft konnte nicht gestartet werden";
-            isLaunching.value = false;
-            launchPhase.value = "idle";
-            return;
-        }
+const handleLaunch = async (instanceName?: unknown) => {
+  const name = resolveInstanceName(instanceName);
+  if (!name) return;
 
-        launchPollInterval = window.setInterval(() => { void pollLaunchStatus(instanceName); }, 1500);
-    } catch (e) {
-        error.value = e instanceof Error ? e.message : "Minecraft konnte nicht gestartet werden";
-        isLaunching.value = false;
-        launchPhase.value = "idle";
-        stopLaunchPolling();
-    }
+  try {
+    isLaunching.value = true;
+    launchPhase.value = "installing";
+    launchMessage.value = t("launch.preparing");
+    error.value = null;
+
+    await apiSend("POST", `/api/instances/${encodeURIComponent(name)}/launch`);
+    stopLaunchPolling();
+    launchPollInterval = window.setInterval(() => void pollLaunchStatus(name), 1500);
+  } catch (e) {
+    error.value = errorMessage(e, t("launch.failed"));
+    isLaunching.value = false;
+    launchPhase.value = "idle";
+    stopLaunchPolling();
+  }
 };
 
-const handleStop = async () => {
-    if (!selectedInstance.value) return;
-    try {
-        isLaunching.value = true;
-        error.value = null;
-        const d = await apiFetch<{ success: boolean; instanceName?: string; error?: string }>(
-            `/api/instances/${encodeURIComponent(selectedInstance.value.name)}/stop`,
-            { method: "POST" }
-        );
-        if (!d.success) { error.value = d.error ?? "Profil konnte nicht gestoppt werden"; return; }
-        launcherMessage.value = `${d.instanceName ?? selectedInstance.value.name} erfolgreich gestoppt.`;
-        launchPhase.value = "idle";
-        await loadInstances();
-    } catch (e) {
-        error.value = e instanceof Error ? e.message : "Profil konnte nicht gestoppt werden";
-    } finally {
-        isLaunching.value = false;
-    }
+const handleStop = async (instanceName?: unknown) => {
+  const name = resolveInstanceName(instanceName);
+  if (!name) return;
+
+  try {
+    isLaunching.value = true;
+    error.value = null;
+    await apiSend("POST", `/api/instances/${encodeURIComponent(name)}/stop`);
+    launcherMessage.value = t("launch.stopped", { name });
+    launchPhase.value = "idle";
+    stopLaunchPolling();
+    await loadInstances();
+  } catch (e) {
+    error.value = errorMessage(e, t("launch.stopFailed"));
+  } finally {
+    isLaunching.value = false;
+  }
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ipcRenderer = (window as any).require?.('electron')?.ipcRenderer;
+// ── Window chrome ─────────────────────────────────────────────────────────────
 
-const handleWindowMinimize = () => ipcRenderer?.send('window-minimize');
-const handleWindowMaximize = () => ipcRenderer?.send('window-maximize');
-const handleWindowClose = () => ipcRenderer?.send('window-close');
+// The renderer runs with nodeIntegration enabled, so `require` is available at runtime but not
+// in the type system.
+interface RendererIpc {
+  send(channel: string): void;
+}
+
+const ipcRenderer = (
+  window as unknown as { require?: (module: string) => { ipcRenderer?: RendererIpc } }
+).require?.("electron")?.ipcRenderer;
+
+const sendWindowCommand = async (channel: string, endpoint: string) => {
+  if (ipcRenderer) {
+    ipcRenderer.send(channel);
+    return;
+  }
+  // Running outside Electron (e.g. the Vite dev server in a browser): fall back to the API.
+  try {
+    await apiSend("POST", endpoint);
+  } catch {
+    // Nothing to control — harmless in a plain browser.
+  }
+};
+
+const handleWindowMinimize = () => void sendWindowCommand("window-minimize", "/api/window/minimize");
+const handleWindowMaximize = () => void sendWindowCommand("window-maximize", "/api/window/maximize");
+const handleWindowClose = () => void sendWindowCommand("window-close", "/api/window/close");
 
 export function useLaunch() {
-    return {
-        isLaunching, launchPhase, launchMessage,
-        handleLaunch, handleStop, stopLaunchPolling,
-        handleWindowMinimize, handleWindowMaximize, handleWindowClose,
-    };
+  return {
+    isLaunching,
+    launchPhase,
+    launchMessage,
+    handleLaunch,
+    handleStop,
+    stopLaunchPolling,
+    handleWindowMinimize,
+    handleWindowMaximize,
+    handleWindowClose,
+  };
 }

@@ -1,107 +1,171 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted } from "vue";
 import { Icon } from "@iconify/vue";
 import { useLauncher } from "@/composables/useLauncher";
-import type { JavaRuntime } from "@/composables/useLauncher";
+import SettingsPanel from "./SettingsPanel.vue";
 
-const { javaRuntimes, jvmArgs, minMemory, maxMemory } = useLauncher();
+const { t, settings, java } = useLauncher();
 
-const addRuntime = () => {
-  const existing = javaRuntimes.value.map((r) => r.version);
-  const next = [8, 11, 16, 17, 19, 20, 21, 22].find((v) => !existing.includes(v)) ?? (Math.max(...existing, 0) + 1);
-  javaRuntimes.value.push({ version: next, path: "" });
+onMounted(() => void java.loadRuntimes());
+onBeforeUnmount(() => java.stopAllPolling());
+
+/** Memory is stored in megabytes but presented in gigabytes, which is how people think about it. */
+const minMemoryGb = computed({
+  get: () => Math.round((settings.value.defaultMinMemoryMb / 1024) * 10) / 10,
+  set: (value: number) => {
+    settings.value.defaultMinMemoryMb = Math.round(value * 1024);
+  },
+});
+
+const maxMemoryGb = computed({
+  get: () => Math.round((settings.value.defaultMaxMemoryMb / 1024) * 10) / 10,
+  set: (value: number) => {
+    settings.value.defaultMaxMemoryMb = Math.round(value * 1024);
+    // The minimum can never exceed the maximum, so pull it down with the slider.
+    if (settings.value.defaultMinMemoryMb > settings.value.defaultMaxMemoryMb) {
+      settings.value.defaultMinMemoryMb = settings.value.defaultMaxMemoryMb;
+    }
+  },
+});
+
+/** One row per offerable Java version, merged with what is installed and what is downloading. */
+const runtimeRows = computed(() =>
+  java.installable.value.map((majorVersion) => {
+    const detected = java.detected.value.find((runtime) => runtime.majorVersion === majorVersion);
+    const managed = java.managed.value.find((runtime) => runtime.majorVersion === majorVersion);
+    const configured = settings.value.javaRuntimes.find((entry) => entry.majorVersion === majorVersion);
+    const job = java.installJobs.value[majorVersion];
+
+    return {
+      majorVersion,
+      available: Boolean(detected ?? managed),
+      path: configured?.path ?? managed?.path ?? detected?.path ?? "",
+      source: managed ? t("settings.javaManaged") : detected ? detected.source : "",
+      downloading: job?.phase === "downloading",
+      failed: job?.phase === "failed",
+      message: job?.message ?? "",
+    };
+  }),
+);
+
+/** Writes a manual override, or clears it when the field is emptied. */
+const setCustomPath = (majorVersion: number, path: string) => {
+  const trimmed = path.trim();
+  const others = settings.value.javaRuntimes.filter((entry) => entry.majorVersion !== majorVersion);
+  settings.value.javaRuntimes = trimmed ? [...others, { majorVersion, path: trimmed }] : others;
 };
 
-const removeRuntime = (index: number) => {
-  if (javaRuntimes.value.length > 1) javaRuntimes.value.splice(index, 1);
-};
-
-const updateVersion = (rt: JavaRuntime, raw: string) => {
-  const n = parseInt(raw, 10);
-  if (!Number.isNaN(n) && n > 0) rt.version = n;
-};
+const customPathOf = (majorVersion: number) =>
+  settings.value.javaRuntimes.find((entry) => entry.majorVersion === majorVersion)?.path ?? "";
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <!-- Memory -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 flex items-center gap-[7px] text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">
-        <Icon icon="lucide:memory-stick" class="size-[13px]" />MEMORY ALLOCATION
-      </div>
-      <div class="mb-[14px] text-[length:var(--text-base)] leading-[1.55] text-white/60">
-        Configure minimum and maximum RAM for Minecraft
-      </div>
+    <SettingsPanel
+      :title="t('settings.memory')"
+      :description="t('settings.memoryHint')"
+      icon="lucide:memory-stick"
+    >
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <VoltSlider v-model="minMemory" :min="1" :max="16" :step="1" label="Minimum (GB)" />
-        <VoltSlider v-model="maxMemory" :min="1" :max="32" :step="1" label="Maximum (GB)" />
+        <VoltSlider v-model="minMemoryGb" :min="1" :max="16" :step="1" :label="t('settings.minMemory')" />
+        <VoltSlider v-model="maxMemoryGb" :min="1" :max="32" :step="1" :label="t('settings.maxMemory')" />
       </div>
-    </div>
+    </SettingsPanel>
 
-    <!-- Java Runtimes -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 flex items-center justify-between">
-        <div class="flex items-center gap-[7px] text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">
-          <Icon icon="lucide:coffee" class="size-[13px]" />JAVA RUNTIMES
-        </div>
+    <SettingsPanel
+      :title="t('settings.javaRuntimes')"
+      :description="t('settings.javaRuntimesHint')"
+      icon="lucide:coffee"
+    >
+      <template #action>
         <button
           type="button"
-          class="inline-flex items-center gap-1 rounded-md border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-2 py-1 text-[length:var(--text-2xs)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)]"
-          @click="addRuntime"
+          class="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[length:var(--text-2xs)] font-semibold tracking-[0.07em] text-white/50 transition-all duration-200 hover:bg-white/10 hover:text-white/80"
+          :disabled="java.isLoading.value"
+          @click="java.loadRuntimes()"
         >
-          <Icon icon="lucide:plus" class="size-[10px]" />Add
+          <Icon
+            icon="lucide:refresh-cw"
+            class="size-[10px]"
+            :class="java.isLoading.value ? 'animate-spin' : ''"
+          />
+          {{ t("common.retry") }}
         </button>
-      </div>
-      <div class="mb-[14px] text-[length:var(--text-base)] leading-[1.55] text-white/60">
-        Assign a custom Java executable per major version, or leave blank for auto-detection
-      </div>
+      </template>
 
       <div class="flex flex-col gap-2">
         <div
-          v-for="(rt, i) in javaRuntimes"
-          :key="i"
-          class="flex items-center gap-2 rounded-[10px] border border-white/10 bg-[var(--surface-input-muted)] px-3 py-2.5"
+          v-for="row in runtimeRows"
+          :key="row.majorVersion"
+          class="rounded-[10px] border border-white/10 bg-[var(--surface-input-muted)] px-3 py-2.5"
         >
-          <div class="flex shrink-0 flex-col items-center gap-0.5">
-            <span class="text-[length:var(--text-2xs)] font-bold tracking-wider text-white/35">JAVA</span>
-            <input
-              type="number"
-              min="1"
-              :value="rt.version"
-              class="w-[42px] rounded-md border border-white/10 bg-[var(--surface-input)] px-1.5 py-0.5 text-center font-mono text-[length:var(--text-sm)] text-white outline-none transition-colors duration-200 focus:border-[var(--accent-border-focus)] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-              @change="updateVersion(rt, ($event.target as HTMLInputElement).value)"
-            />
+          <div class="flex flex-wrap items-center gap-2">
+            <div
+              class="flex size-9 shrink-0 items-center justify-center rounded-lg text-[length:var(--text-sm)] font-bold"
+              :class="row.available
+                ? 'bg-[var(--accent-bg-strong)] text-[var(--primary)]'
+                : 'bg-white/5 text-white/30'"
+            >
+              {{ row.majorVersion }}
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-[length:var(--text-base-plus)] font-semibold text-white">
+                  Java {{ row.majorVersion }}
+                </span>
+                <span
+                  v-if="row.available"
+                  class="rounded-[4px] bg-[var(--accent-bg-soft)] px-1.5 py-0.5 text-[length:var(--text-2xs)] font-bold tracking-[0.1em] text-[var(--primary)]/80"
+                >
+                  {{ t("settings.javaInstalled") }}
+                </span>
+              </div>
+              <div class="truncate font-mono text-[length:var(--text-2xs)] text-white/35">
+                {{ row.path || t("settings.javaNoneDetected") }}
+              </div>
+            </div>
+
+            <button
+              v-if="!row.available && !row.downloading"
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3 py-[6px] text-[length:var(--text-sm)] font-semibold text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)]"
+              @click="java.installRuntime(row.majorVersion)"
+            >
+              <Icon icon="lucide:download" class="size-[11px]" />
+              {{ t("settings.javaInstall") }}
+            </button>
+
+            <span
+              v-else-if="row.downloading"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3 py-[6px] text-[length:var(--text-sm)] font-semibold text-white/60"
+            >
+              <Icon icon="lucide:loader-2" class="size-[11px] animate-spin" />
+              {{ t("settings.javaInstalling") }}
+            </span>
           </div>
+
+          <div v-if="row.failed" class="mt-2 text-[length:var(--text-2xs)] text-[var(--danger-text)]">
+            {{ row.message }}
+          </div>
+
           <input
-            v-model="rt.path"
+            :value="customPathOf(row.majorVersion)"
             type="text"
-            placeholder="Auto-detect"
-            class="min-w-0 flex-1 rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white placeholder-white/30 outline-none transition-colors duration-200 focus:border-[var(--accent-border-focus)]"
+            :placeholder="t('settings.javaAutoDetect')"
+            class="mt-2 w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-1.5 font-mono text-[length:var(--text-2xs)] text-white/70 placeholder-white/25 outline-none transition-colors duration-200 focus:border-[var(--accent-border-focus)]"
+            @change="setCustomPath(row.majorVersion, ($event.target as HTMLInputElement).value)"
           />
-          <button
-            type="button"
-            class="shrink-0 rounded-md p-1.5 text-white/25 transition-colors duration-200 hover:bg-white/5 hover:text-white/60 disabled:pointer-events-none disabled:opacity-30"
-            :disabled="javaRuntimes.length <= 1"
-            @click="removeRuntime(i)"
-          >
-            <Icon icon="lucide:x" class="size-[12px]" />
-          </button>
         </div>
       </div>
-    </div>
+    </SettingsPanel>
 
-    <!-- JVM Arguments -->
-    <div class="rounded-xl border border-white/10 bg-[var(--surface-panel)] p-[18px]">
-      <div class="mb-1 flex items-center gap-[7px] text-[length:var(--text-xs)] font-bold tracking-[0.12em] text-white/60">
-        <Icon icon="lucide:terminal" class="size-[13px]" />JVM ARGUMENTS
-      </div>
-      <div class="mb-[14px] text-[length:var(--text-base)] leading-[1.55] text-white/60">
-        Custom flags passed to every Java launch
-      </div>
+    <SettingsPanel :title="t('settings.jvmArgs')" :description="t('settings.jvmArgsHint')" icon="lucide:terminal">
       <input
-        v-model="jvmArgs"
+        v-model="settings.defaultJvmArgs"
         type="text"
         class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 font-mono text-[length:var(--text-2xs)] text-white/70 outline-none transition-colors duration-200 focus:border-[var(--accent-border-focus)]"
       />
-    </div>
+    </SettingsPanel>
   </div>
 </template>

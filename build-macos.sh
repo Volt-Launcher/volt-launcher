@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 APP_NAME="VoltLauncher"
 BINARY_NAME="volt-launcher"
 OUTPUT_DIR="build/macos"
@@ -39,13 +39,13 @@ pnpm exec electron-builder --mac --dir
 cd ..
 
 # Clean up builder metadata and other platform artifacts
-rm -f src/main/resources/electron-bin/builder-debug.yml \
-      src/main/resources/electron-bin/builder-effective-config.yaml
-rm -rf src/main/resources/electron-bin/linux-unpacked \
-       src/main/resources/electron-bin/win-unpacked 2>/dev/null || true
+rm -f volt-app/src/main/resources/electron-bin/builder-debug.yml \
+      volt-app/src/main/resources/electron-bin/builder-effective-config.yaml
+rm -rf volt-app/src/main/resources/electron-bin/linux-unpacked \
+       volt-app/src/main/resources/electron-bin/win-unpacked 2>/dev/null || true
 
-if [ ! -d "src/main/resources/electron-bin/$ELECTRON_DIR" ]; then
-    echo "ERROR: $ELECTRON_DIR not found in src/main/resources/electron-bin!"
+if [ ! -d "volt-app/src/main/resources/electron-bin/$ELECTRON_DIR" ]; then
+    echo "ERROR: $ELECTRON_DIR not found in volt-app/src/main/resources/electron-bin!"
     exit 1
 fi
 
@@ -53,11 +53,11 @@ fi
 echo "[2/3] Building GraalVM native image..."
 mvn clean package -Pnative -DskipTests
 
-if [ ! -f "target/$BINARY_NAME" ]; then
-    echo "ERROR: Native image build failed - target/$BINARY_NAME not found!"
+if [ ! -f "volt-app/target/$BINARY_NAME" ]; then
+    echo "ERROR: Native image build failed - volt-app/target/$BINARY_NAME not found!"
     exit 1
 fi
-echo "[2/3] Native image built: target/$BINARY_NAME ($(du -h "target/$BINARY_NAME" | cut -f1))"
+echo "[2/3] Native image built: volt-app/target/$BINARY_NAME ($(du -h "volt-app/target/$BINARY_NAME" | cut -f1))"
 
 # Step 3: Assemble build output
 echo "[3/3] Assembling build output in $OUTPUT_DIR..."
@@ -65,15 +65,15 @@ rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR/electron"
 
 # Copy native binary
-cp "target/$BINARY_NAME" "$OUTPUT_DIR/$BINARY_NAME"
+cp "volt-app/target/$BINARY_NAME" "$OUTPUT_DIR/$BINARY_NAME"
 chmod +x "$OUTPUT_DIR/$BINARY_NAME"
 
 # Copy electron binary alongside main binary
-cp -r "src/main/resources/electron-bin/$ELECTRON_DIR" "$OUTPUT_DIR/electron/"
+cp -r "volt-app/src/main/resources/electron-bin/$ELECTRON_DIR" "$OUTPUT_DIR/electron/"
 
 # Clean electron-bin after copying
-rm -rf src/main/resources/electron-bin/mac \
-       src/main/resources/electron-bin/mac-arm64 2>/dev/null || true
+rm -rf volt-app/src/main/resources/electron-bin/mac \
+       volt-app/src/main/resources/electron-bin/mac-arm64 2>/dev/null || true
 
 # Step 4: Build .dmg
 echo "[4/4] Building .dmg..."
