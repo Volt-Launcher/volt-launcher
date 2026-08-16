@@ -2,6 +2,7 @@ package app.voltlauncher.server.route;
 
 import io.javalin.config.JavalinConfig;
 import io.javalin.http.Context;
+import io.javalin.http.Handler;
 import io.javalin.http.HandlerType;
 import org.json.JSONObject;
 
@@ -46,6 +47,19 @@ public final class RouteRegistry {
 
     public RouteRegistry module(RouteModule module) {
         module.register(this);
+        return this;
+    }
+
+    /**
+     * Registers a handler that writes its own response, for endpoints that do not return the JSON
+     * envelope — currently only binary payloads such as skin images. The handler owns its status
+     * codes and error handling.
+     */
+    public RouteRegistry raw(String method, String path, Handler handler) {
+        config.routes.addHttpHandler(HandlerType.findOrCreate(method), path, handler);
+        if (logRoutes) {
+            System.out.println("[API] " + method + " " + path + " (raw)");
+        }
         return this;
     }
 

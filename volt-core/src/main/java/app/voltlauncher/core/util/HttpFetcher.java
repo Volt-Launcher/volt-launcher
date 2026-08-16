@@ -3,6 +3,7 @@ package app.voltlauncher.core.util;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -132,6 +133,46 @@ public final class HttpFetcher {
         .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
         headers.forEach(builder::header);
         HttpResponse < String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        assertSuccess(url, resp.statusCode());
+        return JsonUtil.parse(resp.body());
+    }
+
+    /**
+     * Posts a {@code multipart/form-data} request with one file part.
+     *
+     * <p>Written by hand because the JDK's HTTP client has no multipart body publisher, and
+     * Mojang's skin endpoint accepts nothing else.
+     */
+    public JSONObject postMultipart(String url, Map<String, String> headers, Map<String, String> fields,
+                                    String fileFieldName, String fileName, byte[] fileBytes,
+                                    String fileContentType) throws Exception {
+        String boundary = "----VoltLauncher" + Long.toHexString(System.nanoTime());
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+
+        for (Map.Entry<String, String> field : fields.entrySet()) {
+            body.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            body.write(("Content-Disposition: form-data; name=\"" + field.getKey() + "\"\r\n\r\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            body.write((field.getValue() + "\r\n").getBytes(StandardCharsets.UTF_8));
+        }
+
+        body.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(("Content-Disposition: form-data; name=\"" + fileFieldName + "\"; filename=\"" + fileName + "\"\r\n")
+                .getBytes(StandardCharsets.UTF_8));
+        body.write(("Content-Type: " + fileContentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(fileBytes);
+        body.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        body.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(API_TIMEOUT)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()));
+        headers.forEach(builder::header);
+
+        HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
         assertSuccess(url, resp.statusCode());
         return JsonUtil.parse(resp.body());
     }

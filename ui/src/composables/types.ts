@@ -70,6 +70,16 @@ export interface ContentEntry {
   enabled: boolean;
 }
 
+// ── Skins ─────────────────────────────────────────────────────────────────────
+
+export interface SavedSkin {
+  id: string;
+  name: string;
+  /** True for the 3px-arm ("Alex") model. */
+  slim: boolean;
+  createdAt: number;
+}
+
 // ── Content providers ─────────────────────────────────────────────────────────
 
 export type ProviderId = "modrinth" | "curseforge";

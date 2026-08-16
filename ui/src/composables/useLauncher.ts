@@ -7,6 +7,7 @@ import { stopLaunchPolling, useLaunch } from "./useLaunch";
 import { useSettings } from "./useSettings";
 import { useProviders } from "./useProviders";
 import { useJava } from "./useJava";
+import { useSkins } from "./useSkins";
 import { useI18n } from "@/i18n";
 import {
   formatLoaderId,
@@ -94,6 +95,7 @@ export function useLauncher() {
     ...useNotifications(),
     ...useSettings(),
     ...useProviders(),
+    ...useSkins(),
     ...useI18n(),
     java: useJava(),
 

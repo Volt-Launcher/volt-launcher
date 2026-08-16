@@ -10,6 +10,7 @@ public final class MinecraftAuthClient {
 
     private static final String MC_LOGIN_ENDPOINT = "https://api.minecraftservices.com/authentication/login_with_xbox";
     private static final String MC_PROFILE_ENDPOINT = "https://api.minecraftservices.com/minecraft/profile";
+    private static final String MC_SKIN_ENDPOINT = "https://api.minecraftservices.com/minecraft/profile/skins";
 
     private final HttpFetcher http;
 
@@ -31,6 +32,19 @@ public final class MinecraftAuthClient {
         JSONObject json = http.getJson( MC_PROFILE_ENDPOINT, Map.of("Authorization", "Bearer " + minecraftAccessToken));
 
         return new MinecraftProfile(json.getString("id"), json.getString("name"));
+    }
+
+    /**
+     * Uploads a skin to the account the token belongs to.
+     *
+     * @param slim selects the 3px-arm ("Alex") model over the classic one
+     */
+    public void changeSkin(String minecraftAccessToken, byte[] pngBytes, boolean slim) throws Exception {
+        http.postMultipart(
+                MC_SKIN_ENDPOINT,
+                Map.of("Authorization", "Bearer " + minecraftAccessToken),
+                Map.of("variant", slim ? "slim" : "classic"),
+                "file", "skin.png", pngBytes, "image/png");
     }
 
     public record MinecraftTokenResponse(String accessToken, long expiresAt) {}

@@ -24,6 +24,8 @@
 - [x] Make settings persistent and functional
 - [x] Localise the interface (English + German)
 - [x] Share assets and libraries between profiles instead of duplicating ~1 GB per profile
+- [x] Skin management (ported from the pre-overhaul branch: local library, upload,
+      rename, delete, apply to the signed-in account)
 
 ## Open
 
@@ -32,7 +34,6 @@
 - [ ] Fix scrolling
 - [ ] Add GraalVM support for executables (the `native` profile builds, but the reflection
       config still needs regenerating after the routing rewrite)
-- [ ] Skin management (the Skins tab is still a placeholder)
 - [ ] Discord rich presence (the setting exists but nothing consumes it yet)
 - [ ] Launcher self-update (the Updates screen is not wired to a release feed)
 - [ ] Automated tests — there is currently no test suite

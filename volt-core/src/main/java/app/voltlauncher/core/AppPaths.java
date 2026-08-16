@@ -101,6 +101,24 @@ public final class AppPaths {
         return sharedDirectory().resolve("natives");
     }
 
+    // ── skins ─────────────────────────────────────────────────────────────────
+
+    public static Path skinsDirectory() {
+        return baseDirectory().resolve("skins");
+    }
+
+    public static Path skinsMetadataPath() {
+        return skinsDirectory().resolve("skins.json");
+    }
+
+    /**
+     * Location of a stored skin PNG. The id is expected to already be validated as a UUID by the
+     * caller; it is joined into a path, so anything else must never reach here.
+     */
+    public static Path skinImagePath(String skinId) {
+        return skinsDirectory().resolve(skinId + ".png");
+    }
+
     // ── logs ──────────────────────────────────────────────────────────────────
 
     public static Path logsDirectory() {

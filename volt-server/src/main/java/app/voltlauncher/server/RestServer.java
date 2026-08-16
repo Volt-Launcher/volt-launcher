@@ -1,6 +1,7 @@
 package app.voltlauncher.server;
 
 import app.voltlauncher.auth.session.MicrosoftAuth;
+import app.voltlauncher.auth.skin.SkinStore;
 import app.voltlauncher.core.config.SettingsStore;
 import app.voltlauncher.game.MinecraftLauncherService;
 import app.voltlauncher.game.java.JavaInstallService;
@@ -15,6 +16,7 @@ import app.voltlauncher.server.routes.ContentRoutes;
 import app.voltlauncher.server.routes.InstanceRoutes;
 import app.voltlauncher.server.routes.ProviderRoutes;
 import app.voltlauncher.server.routes.SettingsRoutes;
+import app.voltlauncher.server.routes.SkinRoutes;
 import app.voltlauncher.server.routes.WindowRoutes;
 import io.javalin.Javalin;
 import org.json.JSONObject;
@@ -40,6 +42,7 @@ public final class RestServer {
     private final ContentInstallService contentInstaller;
     private final ModpackInstallService modpackInstaller;
     private final JavaInstallService javaInstaller;
+    private final SkinStore skinStore;
 
     private final Runnable minimizeWindow;
     private final Runnable maximizeWindow;
@@ -70,6 +73,7 @@ public final class RestServer {
                     launcher, launcher.http(),
                     (CurseForgeProvider) providers.require(ProviderId.CURSEFORGE), settings);
             this.javaInstaller = new JavaInstallService(launcher.javaResolver());
+            this.skinStore = new SkinStore();
         } catch (Exception e) {
             throw new IllegalStateException("Failed to initialise launcher services", e);
         }
@@ -88,6 +92,7 @@ public final class RestServer {
                     .module(new ContentRoutes(launcher))
                     .module(new ProviderRoutes(providers, contentInstaller, modpackInstaller))
                     .module(new SettingsRoutes(settings, launcher.javaResolver(), javaInstaller, LAUNCHER_VERSION))
+                    .module(new SkinRoutes(skinStore, auth))
                     .module(new WindowRoutes(minimizeWindow, maximizeWindow, closeWindow))
                     .get("/api/health", ctx -> new JSONObject()
                             .put("version", LAUNCHER_VERSION)

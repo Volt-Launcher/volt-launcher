@@ -17,14 +17,16 @@ public class MicrosoftAuth {
 
     private static final String CLIENT_ID = "00000000402b5328";
     private final OAuthClient oauthClient;
+    private final MinecraftAuthClient minecraftAuthClient;
     private final SessionManager sessionManager;
     private final ConcurrentHashMap<String, PendingAuth> pendingStates = new ConcurrentHashMap<>();
 
     public MicrosoftAuth() throws Exception {
         HttpFetcher http = new HttpFetcher();
         this.oauthClient = new OAuthClient(CLIENT_ID, http);
+        this.minecraftAuthClient = new MinecraftAuthClient(http);
         this.sessionManager = new SessionManager(
-                oauthClient, new XboxAuthClient(http), new MinecraftAuthClient(http),
+                oauthClient, new XboxAuthClient(http), minecraftAuthClient,
                 new EncryptedAccountStore());
     }
 
@@ -98,6 +100,15 @@ public class MicrosoftAuth {
 
     public void logout() throws Exception {
         sessionManager.logout();
+    }
+
+    /**
+     * Applies a skin to the currently selected account. Goes through the launch session so an
+     * expired access token is refreshed first.
+     */
+    public void changeSkin(byte[] pngBytes, boolean slim) throws Exception {
+        MinecraftAccountSession session = sessionManager.getLaunchSession();
+        minecraftAuthClient.changeSkin(session.minecraftAccessToken(), pngBytes, slim);
     }
 
     public record StartAuthResult(String state, String url) {}
