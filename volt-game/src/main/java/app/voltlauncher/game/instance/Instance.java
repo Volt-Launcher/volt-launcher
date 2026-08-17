@@ -51,6 +51,12 @@ public record Instance(
                 javaMajorVersion, javaComponent, settings);
     }
 
+    /** Re-points a profile at another game version, as a modpack update across versions does. */
+    public Instance withVersion(String newVersionId, String newVersionType, int majorVersion, String component) {
+        return new Instance(name, slug, newVersionId, newVersionType, createdAt, lastPlayedAt,
+                majorVersion, component, settings);
+    }
+
     public Instance withJavaRequirement(int majorVersion, String component) {
         return new Instance(name, slug, versionId, versionType, createdAt, lastPlayedAt,
                 majorVersion, component, settings);

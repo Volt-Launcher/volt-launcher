@@ -7,7 +7,9 @@ import app.voltlauncher.providers.model.ProviderId;
 import app.voltlauncher.providers.model.SearchQuery;
 import app.voltlauncher.providers.model.SearchResult;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A source of installable Minecraft content. Implementations normalise their upstream API onto
@@ -47,4 +49,17 @@ public interface ContentProvider {
 
     /** A single version by id, used when installing a specific pinned release. */
     ProjectVersion version(String versionId) throws Exception;
+
+    /**
+     * Identifies local files by their contents, so a jar the launcher did not install itself can
+     * still be matched back to the project it belongs to.
+     *
+     * <p>Each provider hashes the file the way its own lookup expects — Modrinth by SHA-1,
+     * CurseForge by its murmur2 fingerprint — which is why this takes paths rather than a hash.
+     *
+     * @return the files that matched, keyed by the path passed in; unmatched files are absent
+     */
+    default Map<Path, ProjectVersion> identify(List<Path> files) throws Exception {
+        return Map.of();
+    }
 }

@@ -47,6 +47,10 @@ export interface LauncherInstance {
   startedAt?: number;
   javaExecutable?: string;
   runningJavaMajorVersion?: number;
+  /** Name of the modpack this profile came from; blank for hand-made profiles. */
+  packName: string;
+  /** Modpack artwork, used instead of the version emoji when present. */
+  packIconUrl: string;
 }
 
 export interface AvailableVersion {
@@ -64,10 +68,80 @@ export interface Platform {
 
 export type ContentType = "mods" | "resourcepacks" | "shaderpacks" | "datapacks";
 
+/** Where an installed file came from, recorded so its versions can be managed. */
+export interface ContentSource {
+  contentType: ContentType;
+  fileName: string;
+  provider: ProviderId | "";
+  projectId: string;
+  versionId: string;
+  projectName: string;
+  versionNumber: string;
+  downloadUrl: string;
+  sha1: string;
+  fileSize: number;
+  origin: "provider" | "modpack" | "manual";
+  /** Project artwork, blank until the project behind the file is known. */
+  iconUrl: string;
+}
+
 export interface ContentEntry {
   fileName: string;
   size: number;
   enabled: boolean;
+  /** Null for files the launcher has no provenance for. */
+  source: ContentSource | null;
+  /** True when the file has a known project and can be updated or rolled back. */
+  tracked: boolean;
+}
+
+/** An installed file with a newer compatible release available. */
+export interface ContentUpdate {
+  contentType: ContentType;
+  fileName: string;
+  projectId: string;
+  projectName: string;
+  currentVersionId: string;
+  currentVersionNumber: string;
+  latestVersionId: string;
+  latestVersionNumber: string;
+  latestFileName: string;
+  releaseDate: string;
+}
+
+// ── Modpacks ──────────────────────────────────────────────────────────────────
+
+export interface ModpackOrigin {
+  provider: ProviderId | "";
+  projectId: string;
+  versionId: string;
+  versionNumber: string;
+  name: string;
+  /** Set for locally imported archives, which have no upstream to check. */
+  sourceFile: string;
+  iconUrl: string;
+  updatable: boolean;
+}
+
+export interface ModpackStatus {
+  modpack: ModpackOrigin | null;
+  updateAvailable: boolean;
+  latestVersionId: string;
+  latestVersionNumber: string;
+  latestReleaseDate: string;
+  reason: string;
+}
+
+export type ExportFormat = "mrpack" | "curseforge";
+
+export interface ExportResult {
+  path: string;
+  fileName: string;
+  /** Files the target platform can reference by id. */
+  referenced: number;
+  /** Files carried inside overrides/ because they could not be referenced. */
+  bundled: number;
+  notes: string[];
 }
 
 // ── Skins ─────────────────────────────────────────────────────────────────────

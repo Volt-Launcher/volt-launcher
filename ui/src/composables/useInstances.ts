@@ -6,9 +6,14 @@ import type {
   AvailableVersion,
   ContentEntry,
   ContentType,
+  ContentUpdate,
+  ExportFormat,
+  ExportResult,
   InstanceSettings,
   LauncherInstance,
+  ModpackStatus,
   Platform,
+  ProjectVersion,
 } from "./types";
 
 /** A profile whose creation is still running, shown as a placeholder card. */
@@ -348,6 +353,130 @@ const toggleInstanceContent = async (
   }
 };
 
+// ── Content version management ────────────────────────────────────────────────
+
+/**
+ * Matches files with no known origin against the providers by their contents, so a hand-added or
+ * pack-bundled jar becomes manageable. Returns how many were newly identified.
+ */
+const identifyContent = async (name: string, type: ContentType): Promise<number> => {
+  try {
+    const response = await apiSend<{ success: boolean; identified: number }>(
+      "POST",
+      `/api/instances/${encodeURIComponent(name)}/content/${type}/identify`,
+    );
+    return response.identified;
+  } catch (e) {
+    error.value = errorMessage(e, t("content.identifyFailed"));
+    return 0;
+  }
+};
+
+/** Newer releases for every tracked file of one kind. Empty when nothing is out of date. */
+const checkContentUpdates = async (name: string, type: ContentType): Promise<ContentUpdate[]> => {
+  try {
+    const response = await apiGet<{ success: boolean; updates: ContentUpdate[] }>(
+      `/api/instances/${encodeURIComponent(name)}/content/${type}/updates`,
+    );
+    return response.updates;
+  } catch (e) {
+    error.value = errorMessage(e, t("content.updateCheckFailed"));
+    return [];
+  }
+};
+
+/** Every release of the project behind one installed file, for rolling forward or back. */
+const loadContentVersions = async (
+  name: string,
+  type: ContentType,
+  fileName: string,
+): Promise<ProjectVersion[]> => {
+  try {
+    const response = await apiGet<{ success: boolean; versions: ProjectVersion[] }>(
+      `/api/instances/${encodeURIComponent(name)}/content/${type}/${encodeURIComponent(fileName)}/versions`,
+    );
+    return response.versions;
+  } catch (e) {
+    error.value = errorMessage(e, t("content.versionsFailed"));
+    return [];
+  }
+};
+
+const changeContentVersion = async (
+  name: string,
+  type: ContentType,
+  fileName: string,
+  versionId: string,
+): Promise<boolean> => {
+  try {
+    await apiSend("POST", `/api/instances/${encodeURIComponent(name)}/content/${type}/${encodeURIComponent(fileName)}/version`, {
+      versionId,
+    });
+    launcherMessage.value = t("content.versionChanged");
+    return true;
+  } catch (e) {
+    error.value = errorMessage(e, t("content.versionChangeFailed"));
+    return false;
+  }
+};
+
+// ── Modpack lifecycle ─────────────────────────────────────────────────────────
+
+const loadModpackStatus = async (name: string): Promise<ModpackStatus | null> => {
+  try {
+    return await apiGet<ModpackStatus & { success: boolean }>(
+      `/api/instances/${encodeURIComponent(name)}/modpack`,
+    );
+  } catch {
+    // A profile with no pack is the normal case, not an error worth a toast.
+    return null;
+  }
+};
+
+const loadModpackVersions = async (name: string): Promise<ProjectVersion[]> => {
+  try {
+    const response = await apiGet<{ success: boolean; versions: ProjectVersion[] }>(
+      `/api/instances/${encodeURIComponent(name)}/modpack/versions`,
+    );
+    return response.versions;
+  } catch (e) {
+    error.value = errorMessage(e, t("content.versionsFailed"));
+    return [];
+  }
+};
+
+/** Starts a pack update and returns its job id, or null when it could not be started. */
+const startModpackUpdate = async (name: string, versionId: string): Promise<string | null> => {
+  try {
+    const response = await apiSend<{ success: boolean; jobId: string }>(
+      "POST",
+      `/api/instances/${encodeURIComponent(name)}/modpack/update`,
+      { versionId },
+    );
+    return response.jobId;
+  } catch (e) {
+    error.value = errorMessage(e, t("modpack.updateFailed"));
+    return null;
+  }
+};
+
+const exportInstance = async (
+  name: string,
+  format: ExportFormat,
+  version: string,
+): Promise<ExportResult | null> => {
+  try {
+    return await apiSend<ExportResult & { success: boolean }>(
+      "POST",
+      `/api/instances/${encodeURIComponent(name)}/export`,
+      { format, version },
+    );
+  } catch (e) {
+    error.value = errorMessage(e, t("export.failed"));
+    return null;
+  }
+};
+
 // ── Watchers ──────────────────────────────────────────────────────────────────
 
 let versionsUnwatch: WatchStopHandle | null = null;
@@ -433,5 +562,15 @@ export function useInstances() {
     addInstanceContent,
     removeInstanceContent,
     toggleInstanceContent,
+
+    identifyContent,
+    checkContentUpdates,
+    loadContentVersions,
+    changeContentVersion,
+
+    loadModpackStatus,
+    loadModpackVersions,
+    startModpackUpdate,
+    exportInstance,
   };
 }

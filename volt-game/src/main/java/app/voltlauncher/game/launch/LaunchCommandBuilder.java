@@ -1,6 +1,8 @@
 package app.voltlauncher.game.launch;
 
 import app.voltlauncher.auth.MinecraftAccountSession;
+import app.voltlauncher.core.config.LauncherSettings;
+import app.voltlauncher.core.config.SettingsStore;
 import app.voltlauncher.game.install.AssetInstaller;
 import app.voltlauncher.game.install.OsRules;
 import app.voltlauncher.game.instance.InstanceSettings;
@@ -11,8 +13,10 @@ import org.json.JSONObject;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class LaunchCommandBuilder {
 
@@ -24,27 +28,34 @@ public final class LaunchCommandBuilder {
 
     private final String launcherClientId;
     private final String launcherVersion;
+    private final SettingsStore launcherSettings;
 
-    public LaunchCommandBuilder(String launcherClientId) {
-        this(launcherClientId, defaultVersion());
+    public LaunchCommandBuilder(String launcherClientId, SettingsStore launcherSettings) {
+        this(launcherClientId, defaultVersion(), launcherSettings);
     }
 
-    public LaunchCommandBuilder(String launcherClientId, String launcherVersion) {
+    public LaunchCommandBuilder(String launcherClientId, String launcherVersion, SettingsStore launcherSettings) {
         this.launcherClientId = launcherClientId;
         this.launcherVersion = launcherVersion;
+        this.launcherSettings = launcherSettings;
     }
 
     public List<String> build(MinecraftAccountSession session, AssetInstaller.Installation install,
                               JavaRuntimeResolver.JavaRuntime runtime) {
 
         InstanceSettings settings = install.instance().settings();
+        LauncherSettings global = globalSettings();
         Map<String, String> vars = buildVars(session, install, settings);
         Map<String, Boolean> features = buildFeatures(settings);
         JSONObject meta = install.launchMetadata();
         boolean legacy = !meta.has("arguments") && meta.has("minecraftArguments");
 
-        int maxMemoryMb = settings.maxMemoryMb() != null ? settings.maxMemoryMb() : DEFAULT_MAX_MEMORY_MB;
-        int minMemoryMb = settings.minMemoryMb() != null ? settings.minMemoryMb() : DEFAULT_MIN_MEMORY_MB;
+        // Per-profile overrides win; anything the profile leaves unset falls back to the
+        // launcher-wide default the user configured under Settings → Java & memory.
+        int maxMemoryMb = firstPositive(
+                settings.maxMemoryMb(), global == null ? null : global.defaultMaxMemoryMb(), DEFAULT_MAX_MEMORY_MB);
+        int minMemoryMb = firstPositive(
+                settings.minMemoryMb(), global == null ? null : global.defaultMinMemoryMb(), DEFAULT_MIN_MEMORY_MB);
 
         List<String> command = new ArrayList<>();
         command.add(runtime.javaExecutable().toString());
@@ -67,7 +78,7 @@ public final class LaunchCommandBuilder {
             }
         }
 
-        for (String arg : extraJvmArgs(settings)) {
+        for (String arg : extraJvmArgs(settings, global)) {
             if (isHeapArgument(arg)) continue;
             command.add(apply(arg, vars));
         }
@@ -100,14 +111,40 @@ public final class LaunchCommandBuilder {
                 "is_quick_play_realms", false);
     }
 
-    private List<String> extraJvmArgs(InstanceSettings settings) {
-        List<String> args = new ArrayList<>();
-        String custom = settings.jvmArgs();
-        if (custom == null || custom.isBlank()) return args;
-        for (String part : custom.trim().split("\\s+")) {
-            if (!part.isBlank()) args.add(part);
+    /**
+     * The launcher-wide arguments form the baseline and the profile's own arguments are appended,
+     * so a profile can add to — or, for a repeated flag, override — the global set. Exact
+     * duplicates are collapsed to keep the command line readable.
+     */
+    private List<String> extraJvmArgs(InstanceSettings settings, LauncherSettings global) {
+        Set<String> args = new LinkedHashSet<>();
+        if (global != null) splitArgs(global.defaultJvmArgs(), args);
+        splitArgs(settings.jvmArgs(), args);
+        return new ArrayList<>(args);
+    }
+
+    private static void splitArgs(String raw, Set<String> target) {
+        if (raw == null || raw.isBlank()) return;
+        for (String part : raw.trim().split("\\s+")) {
+            if (!part.isBlank()) target.add(part);
         }
-        return args;
+    }
+
+    /** Reads the launcher settings, treating an unreadable store as "no configured defaults". */
+    private LauncherSettings globalSettings() {
+        if (launcherSettings == null) return null;
+        try {
+            return launcherSettings.get();
+        } catch (Exception e) {
+            System.err.println("[Launcher] Could not read launcher settings, using built-in defaults: " + e);
+            return null;
+        }
+    }
+
+    private static int firstPositive(Integer override, Integer configured, int fallback) {
+        if (override != null && override > 0) return override;
+        if (configured != null && configured > 0) return configured;
+        return fallback;
     }
 
     private Map<String, String> buildVars(MinecraftAccountSession session, AssetInstaller.Installation install,

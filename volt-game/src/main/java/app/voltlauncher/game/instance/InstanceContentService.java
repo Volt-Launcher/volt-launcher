@@ -1,5 +1,7 @@
 package app.voltlauncher.game.instance;
 
+import app.voltlauncher.game.store.ContentManifestStore;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -43,16 +45,29 @@ public final class InstanceContentService {
         }
     }
 
-    public record ContentEntry(String fileName, long size, boolean enabled) {}
+    /**
+     * @param source where the file came from, or {@code null} when nothing is recorded for it —
+     *               files that predate the manifest, or that were dropped straight into the folder
+     */
+    public record ContentEntry(String fileName, long size, boolean enabled, ContentSource source) {}
 
     private final InstanceManager instanceManager;
+    private final ContentManifestStore manifests;
 
-    public InstanceContentService(InstanceManager instanceManager) {
+    public InstanceContentService(InstanceManager instanceManager, ContentManifestStore manifests) {
         this.instanceManager = instanceManager;
+        this.manifests = manifests;
+    }
+
+    public ContentManifestStore manifests() {
+        return manifests;
     }
 
     public List<ContentEntry> list(String instanceName, ContentType type) throws Exception {
-        Path dir = contentDir(instanceName, type);
+        Instance instance = instanceManager.findByName(instanceName);
+        ContentManifestStore.Manifest manifest = manifests.read(instance.slug());
+
+        Path dir = instance.gameDirectory().resolve(type.folder());
         List<ContentEntry> result = new ArrayList<>();
         if (!Files.isDirectory(dir)) return result;
         try (Stream<Path> stream = Files.list(dir)) {
@@ -62,7 +77,7 @@ public final class InstanceContentService {
                 String displayName = enabled ? name : name.substring(0, name.length() - DISABLED_SUFFIX.length());
                 long size;
                 try { size = Files.size(p); } catch (Exception e) { size = 0L; }
-                result.add(new ContentEntry(displayName, size, enabled));
+                result.add(new ContentEntry(displayName, size, enabled, manifest.find(type.folder(), displayName)));
             });
         }
         result.sort(Comparator.comparing(e -> e.fileName().toLowerCase(Locale.ROOT)));
@@ -73,17 +88,24 @@ public final class InstanceContentService {
         if (source == null || !Files.isRegularFile(source)) {
             throw new IllegalArgumentException("Source file not found");
         }
-        Path dir = contentDir(instanceName, type);
+        Instance instance = instanceManager.findByName(instanceName);
+        Path dir = instance.gameDirectory().resolve(type.folder());
         Files.createDirectories(dir);
         String fileName = source.getFileName().toString();
         Path target = uniqueTarget(dir, fileName);
         Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
-        return new ContentEntry(target.getFileName().toString(), Files.size(target), true);
+
+        // Recorded even though nothing is known about it, so an export still carries the file.
+        ContentSource recorded = ContentSource.manual(
+                type.folder(), target.getFileName().toString(), Files.size(target));
+        manifests.record(instance.slug(), List.of(recorded));
+        return new ContentEntry(recorded.fileName(), recorded.fileSize(), true, recorded);
     }
 
     public void remove(String instanceName, ContentType type, String fileName) throws Exception {
         Path resolved = resolveExisting(instanceName, type, fileName);
         Files.deleteIfExists(resolved);
+        manifests.forget(instanceManager.findByName(instanceName).slug(), type.folder(), fileName);
     }
 
     public ContentEntry toggle(String instanceName, ContentType type, String fileName) throws Exception {
@@ -99,7 +121,15 @@ public final class InstanceContentService {
             nowEnabled = false;
         }
         Files.move(current, target, StandardCopyOption.REPLACE_EXISTING);
-        return new ContentEntry(fileName, Files.size(target), nowEnabled);
+
+        Instance instance = instanceManager.findByName(instanceName);
+        ContentSource source = manifests.read(instance.slug()).find(type.folder(), fileName);
+        return new ContentEntry(fileName, Files.size(target), nowEnabled, source);
+    }
+
+    /** Absolute path of a tracked file, whether it is currently enabled or disabled. */
+    public Path resolve(String instanceName, ContentType type, String fileName) throws Exception {
+        return resolveExisting(instanceName, type, fileName);
     }
 
     // ── internals ─────────────────────────────────────────────────────────────

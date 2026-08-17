@@ -26,6 +26,16 @@
 - [x] Share assets and libraries between profiles instead of duplicating ~1 GB per profile
 - [x] Skin management (ported from the pre-overhaul branch: local library, upload,
       rename, delete, apply to the signed-in account)
+- [x] Track where every installed file came from (`<instance>/content.json`), which is what
+      makes version management, pack updates and export possible
+- [x] Modpack updating (checks the profile's pack for a newer release, drops the files the
+      new release no longer ships and keeps worlds, configs and self-installed mods)
+- [x] Version management for mods / shaders / resource packs / data packs (per-file update
+      check, update all, and switching to any specific release)
+- [x] Import CurseForge `.zip` and Modrinth `.mrpack` archives (drag onto the profile grid
+      or use IMPORT; the format is detected from the manifest inside)
+- [x] Export a profile as `.mrpack` or CurseForge `.zip` (files the target platform cannot
+      reference by id are bundled into `overrides/`)
 
 ## Open
 

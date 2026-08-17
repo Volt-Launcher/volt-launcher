@@ -2,6 +2,7 @@ package app.voltlauncher.providers.content;
 
 import app.voltlauncher.core.util.HttpFetcher;
 import app.voltlauncher.game.MinecraftLauncherService;
+import app.voltlauncher.game.instance.ContentSource;
 import app.voltlauncher.game.instance.Instance;
 import app.voltlauncher.game.instance.InstanceContentService;
 import app.voltlauncher.game.platform.PlatformRegistry;
@@ -71,20 +72,42 @@ public final class ContentInstallService {
         List<String> skipped = new ArrayList<>();
         Set<String> visitedProjects = new LinkedHashSet<>();
 
+        List<ContentSource> recorded = new ArrayList<>();
+
         launcher.busyRegistry().begin(instance.name(), "installing content");
         try {
             ProjectVersion root = provider.version(versionId);
-            installOne(instance, provider, root, target, installed, skipped, false);
+            installOne(instance, provider, root, target, installed, skipped, recorded, false,
+                    projectLabel(provider, root));
             visitedProjects.add(root.projectId());
 
             if (withDependencies) {
                 resolveDependencies(instance, provider, root, target, gameVersion, loader,
-                        visitedProjects, installed, skipped, 1);
+                        visitedProjects, installed, skipped, recorded, 1);
             }
+            launcher.contentManifests().record(instance.slug(), recorded);
         } finally {
             launcher.busyRegistry().end(instance.name());
         }
         return new InstallReport(installed, skipped);
+    }
+
+    /** A project's display name and icon, shown next to the installed file. */
+    private record ProjectLabel(String title, String iconUrl) {
+        static final ProjectLabel NONE = new ProjectLabel("", "");
+    }
+
+    /**
+     * The project's title and icon, so the UI can say "Sodium" with its logo instead of showing a
+     * jar file name. One extra lookup on an explicit user action; a failure just leaves them blank.
+     */
+    private ProjectLabel projectLabel(ContentProvider provider, ProjectVersion version) {
+        try {
+            var summary = provider.project(version.projectId()).summary();
+            return new ProjectLabel(summary.title(), summary.iconUrl() == null ? "" : summary.iconUrl());
+        } catch (Exception e) {
+            return ProjectLabel.NONE;
+        }
     }
 
     // ── internals ─────────────────────────────────────────────────────────────
@@ -92,7 +115,7 @@ public final class ContentInstallService {
     private void resolveDependencies(Instance instance, ContentProvider provider, ProjectVersion parent,
                                      InstanceContentService.ContentType target, String gameVersion, String loader,
                                      Set<String> visitedProjects, List<InstalledFile> installed,
-                                     List<String> skipped, int depth) {
+                                     List<String> skipped, List<ContentSource> recorded, int depth) {
         if (depth > MAX_DEPENDENCY_DEPTH) return;
 
         for (VersionDependency dependency : parent.dependencies()) {
@@ -108,9 +131,10 @@ public final class ContentInstallService {
                             + " for Minecraft " + gameVersion + " / " + loader);
                     continue;
                 }
-                installOne(instance, provider, resolved, target, installed, skipped, true);
+                installOne(instance, provider, resolved, target, installed, skipped, recorded, true,
+                        projectLabel(provider, resolved));
                 resolveDependencies(instance, provider, resolved, target, gameVersion, loader,
-                        visitedProjects, installed, skipped, depth + 1);
+                        visitedProjects, installed, skipped, recorded, depth + 1);
             } catch (Exception e) {
                 // A dependency that cannot be fetched is reported, not fatal: the main mod is
                 // already installed and the user can resolve the gap manually.
@@ -130,7 +154,8 @@ public final class ContentInstallService {
 
     private void installOne(Instance instance, ContentProvider provider, ProjectVersion version,
                             InstanceContentService.ContentType target, List<InstalledFile> installed,
-                            List<String> skipped, boolean isDependency) throws Exception {
+                            List<String> skipped, List<ContentSource> recorded,
+                            boolean isDependency, ProjectLabel label) throws Exception {
         if (!version.isDownloadable()) {
             skipped.add(version.name() + " cannot be downloaded automatically; "
                     + "the author has disabled third-party downloads.");
@@ -144,8 +169,13 @@ public final class ContentInstallService {
         Files.createDirectories(destination.getParent());
 
         http.download(version.downloadUrl(), destination, version.sha1() == null ? "" : version.sha1());
-        installed.add(new InstalledFile(version.projectId(), version.versionId(),
-                destination.getFileName().toString(), isDependency));
+        String stored = destination.getFileName().toString();
+        installed.add(new InstalledFile(version.projectId(), version.versionId(), stored, isDependency));
+        recorded.add(new ContentSource(
+                target.folder(), stored, provider.id().id(), version.projectId(), version.versionId(),
+                label.title(), version.versionNumber(), version.downloadUrl(),
+                version.sha1() == null ? "" : version.sha1(), Files.size(destination),
+                ContentSource.ORIGIN_PROVIDER, label.iconUrl()));
     }
 
     /** The loader a profile runs, or {@code null} for vanilla profiles. */

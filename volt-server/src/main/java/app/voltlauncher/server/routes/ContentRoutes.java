@@ -1,7 +1,10 @@
 package app.voltlauncher.server.routes;
 
 import app.voltlauncher.game.MinecraftLauncherService;
+import app.voltlauncher.game.instance.ContentSource;
 import app.voltlauncher.game.instance.InstanceContentService;
+import app.voltlauncher.providers.content.ContentVersionService;
+import app.voltlauncher.providers.model.ProjectVersion;
 import app.voltlauncher.server.route.RequestBody;
 import app.voltlauncher.server.route.RouteModule;
 import app.voltlauncher.server.route.RouteRegistry;
@@ -17,9 +20,11 @@ import java.util.List;
 public final class ContentRoutes implements RouteModule {
 
     private final MinecraftLauncherService launcher;
+    private final ContentVersionService versions;
 
-    public ContentRoutes(MinecraftLauncherService launcher) {
+    public ContentRoutes(MinecraftLauncherService launcher, ContentVersionService versions) {
         this.launcher = launcher;
+        this.versions = versions;
     }
 
     @Override
@@ -28,6 +33,12 @@ public final class ContentRoutes implements RouteModule {
         routes.post("/api/instances/{name}/content/{type}", this::addFromDisk);
         routes.delete("/api/instances/{name}/content/{type}/{file}", this::remove);
         routes.post("/api/instances/{name}/content/{type}/{file}/toggle", this::toggle);
+
+        // Version management for individual installed files.
+        routes.post("/api/instances/{name}/content/{type}/identify", this::identify);
+        routes.get("/api/instances/{name}/content/{type}/updates", this::checkUpdates);
+        routes.get("/api/instances/{name}/content/{type}/{file}/versions", this::fileVersions);
+        routes.post("/api/instances/{name}/content/{type}/{file}/version", this::changeVersion);
     }
 
     private JSONObject list(Context ctx) throws Exception {
@@ -81,14 +92,65 @@ public final class ContentRoutes implements RouteModule {
         return new JSONObject().put("item", toJson(entry));
     }
 
+    // ── version management ────────────────────────────────────────────────────
+
+    /** Matches files with no known origin against the providers by their contents. */
+    private JSONObject identify(Context ctx) throws Exception {
+        int matched = versions.identifyUntracked(ctx.pathParam("name"), type(ctx));
+        return new JSONObject().put("identified", matched);
+    }
+
+    private JSONObject checkUpdates(Context ctx) throws Exception {
+        List<ContentVersionService.UpdateCandidate> candidates =
+                versions.checkUpdates(ctx.pathParam("name"), type(ctx));
+
+        JSONArray array = new JSONArray();
+        candidates.forEach(candidate -> array.put(new JSONObject()
+                .put("contentType", candidate.contentType())
+                .put("fileName", candidate.fileName())
+                .put("projectId", candidate.projectId())
+                .put("projectName", candidate.projectName())
+                .put("currentVersionId", candidate.currentVersionId())
+                .put("currentVersionNumber", candidate.currentVersionNumber())
+                .put("latestVersionId", candidate.latestVersionId())
+                .put("latestVersionNumber", candidate.latestVersionNumber())
+                .put("latestFileName", candidate.latestFileName())
+                .put("releaseDate", candidate.releaseDate())));
+        return new JSONObject().put("updates", array);
+    }
+
+    private JSONObject fileVersions(Context ctx) throws Exception {
+        List<ProjectVersion> available =
+                versions.versionsFor(ctx.pathParam("name"), type(ctx), ctx.pathParam("file"));
+
+        JSONArray array = new JSONArray();
+        available.forEach(version -> array.put(version.toJson()));
+        return new JSONObject().put("versions", array);
+    }
+
+    private JSONObject changeVersion(Context ctx) throws Exception {
+        JSONObject body = RequestBody.json(ctx);
+        ContentSource updated = versions.changeVersion(
+                ctx.pathParam("name"), type(ctx), ctx.pathParam("file"),
+                RequestBody.requiredString(body, "versionId"));
+        return new JSONObject().put("source", updated.toJson());
+    }
+
+    // ── mapping ───────────────────────────────────────────────────────────────
+
     private InstanceContentService.ContentType type(Context ctx) {
         return InstanceContentService.ContentType.fromId(ctx.pathParam("type"));
     }
 
     private JSONObject toJson(InstanceContentService.ContentEntry entry) {
-        return new JSONObject()
+        JSONObject json = new JSONObject()
                 .put("fileName", entry.fileName())
                 .put("size", entry.size())
                 .put("enabled", entry.enabled());
+
+        ContentSource source = entry.source();
+        json.put("source", source == null ? JSONObject.NULL : source.toJson());
+        json.put("tracked", source != null && source.isTracked());
+        return json;
     }
 }

@@ -28,15 +28,42 @@ const renderedBody = computed(() => {
   const body = project.value?.body ?? "";
   if (!body.trim()) return "";
 
-  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(body) && project.value?.provider === "curseforge";
-  const html = looksLikeHtml ? body : (marked.parse(body, { async: false }) as string);
+  const looksLikeHtml =
+    /<\/?[a-z][\s\S]*>/i.test(body) && project.value?.provider === "curseforge";
+  const html = looksLikeHtml
+    ? body
+    : (marked.parse(body, { async: false }) as string);
 
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
-      "p", "br", "strong", "em", "del", "code", "pre", "blockquote",
-      "h1", "h2", "h3", "h4", "h5", "h6",
-      "ul", "ol", "li", "a", "img", "hr",
-      "table", "thead", "tbody", "tr", "th", "td", "span", "div",
+      "p",
+      "br",
+      "strong",
+      "em",
+      "del",
+      "code",
+      "pre",
+      "blockquote",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "ul",
+      "ol",
+      "li",
+      "a",
+      "img",
+      "hr",
+      "table",
+      "thead",
+      "tbody",
+      "tr",
+      "th",
+      "td",
+      "span",
+      "div",
     ],
     ALLOWED_ATTR: ["href", "src", "alt", "title", "target", "rel"],
     // Block javascript:/data: URLs outright.
@@ -48,17 +75,32 @@ const renderedBody = computed(() => {
 <template>
   <div
     v-if="project || isLoadingProject || projectError"
-    class="fixed inset-0 z-[70] flex justify-end bg-black/60 backdrop-blur-sm"
+    class="fixed inset-0 z-99999 flex justify-end bg-black/60 backdrop-blur-sm"
     @click.self="emit('close')"
   >
-    <aside class="flex h-full w-full max-w-[720px] flex-col border-l border-white/10 bg-[var(--surface-modal)]">
-      <div v-if="isLoadingProject" class="flex flex-1 items-center justify-center gap-2 text-white/50">
-        <Icon icon="lucide:loader-2" class="size-5 animate-spin" />{{ t("common.loading") }}
+    <aside
+      class="flex h-full w-full max-w-[720px] flex-col border-l border-white/10 bg-[var(--surface-modal)]"
+    >
+      <div
+        v-if="isLoadingProject"
+        class="flex flex-1 items-center justify-center gap-2 text-white/50"
+      >
+        <Icon icon="lucide:loader-2" class="size-5 animate-spin" />{{
+          t("common.loading")
+        }}
       </div>
 
-      <div v-else-if="projectError" class="flex flex-1 flex-col items-center justify-center gap-3 p-6">
-        <Icon icon="lucide:circle-alert" class="size-8 text-[var(--danger-text)]" />
-        <p class="text-center text-[length:var(--text-md)] text-white/60">{{ projectError }}</p>
+      <div
+        v-else-if="projectError"
+        class="flex flex-1 flex-col items-center justify-center gap-3 p-6"
+      >
+        <Icon
+          icon="lucide:circle-alert"
+          class="size-8 text-[var(--danger-text)]"
+        />
+        <p class="text-center text-[length:var(--text-md)] text-white/60">
+          {{ projectError }}
+        </p>
         <button
           type="button"
           class="rounded-[7px] border border-white/10 bg-white/5 px-4 py-2 text-[length:var(--text-sm)] font-semibold text-white/60 hover:bg-white/10"
@@ -77,20 +119,41 @@ const renderedBody = computed(() => {
             class="size-16 shrink-0 rounded-xl bg-white/5 object-cover"
           />
           <div class="min-w-0 flex-1">
-            <h2 class="text-[length:var(--text-xl)] font-bold text-white">{{ project.title }}</h2>
-            <p v-if="project.author" class="text-[length:var(--text-sm)] text-white/45">
+            <h2 class="text-[length:var(--text-xl)] font-bold text-white">
+              {{ project.title }}
+            </h2>
+            <p
+              v-if="project.author"
+              class="text-[length:var(--text-sm)] text-white/45"
+            >
               {{ t("discover.by", { author: project.author }) }}
             </p>
-            <div class="mt-2 flex flex-wrap items-center gap-3 text-[length:var(--text-2xs)] text-white/40">
+            <div
+              class="mt-2 flex flex-wrap items-center gap-3 text-[length:var(--text-2xs)] text-white/40"
+            >
               <span class="inline-flex items-center gap-1">
-                <Icon icon="lucide:download" class="size-[11px]" />{{ formatDownloads(project.downloads) }}
+                <Icon icon="lucide:download" class="size-[11px]" />{{
+                  formatDownloads(project.downloads)
+                }}
               </span>
-              <span v-if="project.updated" class="inline-flex items-center gap-1">
+              <span
+                v-if="project.updated"
+                class="inline-flex items-center gap-1"
+              >
                 <Icon icon="lucide:clock" class="size-[11px]" />
-                {{ t("discover.updated", { when: formatRelativeIso(project.updated) }) }}
+                {{
+                  t("discover.updated", {
+                    when: formatRelativeIso(project.updated),
+                  })
+                }}
               </span>
-              <span v-if="project.license" class="inline-flex items-center gap-1">
-                <Icon icon="lucide:scale" class="size-[11px]" />{{ project.license }}
+              <span
+                v-if="project.license"
+                class="inline-flex items-center gap-1"
+              >
+                <Icon icon="lucide:scale" class="size-[11px]" />{{
+                  project.license
+                }}
               </span>
             </div>
           </div>
@@ -102,7 +165,11 @@ const renderedBody = computed(() => {
               @click="emit('install', project)"
             >
               <Icon icon="lucide:download" class="size-[13px]" />
-              {{ project.kind === "modpack" ? t("common.install") : t("install.toProfile") }}
+              {{
+                project.kind === "modpack"
+                  ? t("common.install")
+                  : t("install.toProfile")
+              }}
             </button>
             <button
               type="button"
@@ -135,7 +202,10 @@ const renderedBody = computed(() => {
           </div>
 
           <!-- Links -->
-          <div v-if="Object.keys(project.links).length" class="flex flex-wrap gap-2">
+          <div
+            v-if="Object.keys(project.links).length"
+            class="flex flex-wrap gap-2"
+          >
             <a
               v-for="(url, key) in project.links"
               :key="key"
@@ -144,12 +214,18 @@ const renderedBody = computed(() => {
               rel="noopener noreferrer"
               class="inline-flex items-center gap-1.5 rounded-[6px] border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[length:var(--text-2xs)] font-semibold text-white/50 capitalize transition-colors hover:bg-white/[0.08] hover:text-white/80"
             >
-              <Icon :icon="LINK_ICONS[key] ?? 'lucide:link'" class="size-[11px]" />{{ key }}
+              <Icon
+                :icon="LINK_ICONS[key] ?? 'lucide:link'"
+                class="size-[11px]"
+              />{{ key }}
             </a>
           </div>
 
           <!-- Gallery -->
-          <div v-if="project.gallery.length" class="flex gap-3 overflow-x-auto pb-2">
+          <div
+            v-if="project.gallery.length"
+            class="flex gap-3 overflow-x-auto pb-2"
+          >
             <img
               v-for="image in project.gallery.slice(0, 8)"
               :key="image"
@@ -161,8 +237,14 @@ const renderedBody = computed(() => {
           </div>
 
           <!-- Description -->
-          <article v-if="renderedBody" class="project-body" v-html="renderedBody" />
-          <p v-else class="text-[length:var(--text-base)] text-white/50">{{ project.description }}</p>
+          <article
+            v-if="renderedBody"
+            class="project-body"
+            v-html="renderedBody"
+          />
+          <p v-else class="text-[length:var(--text-base)] text-white/50">
+            {{ project.description }}
+          </p>
         </div>
       </template>
     </aside>
@@ -189,17 +271,41 @@ const renderedBody = computed(() => {
   color: rgb(255 255 255 / 0.92);
   line-height: 1.3;
 }
-.project-body :deep(h1) { font-size: var(--text-lg); }
-.project-body :deep(h2) { font-size: var(--text-md-plus); }
-.project-body :deep(h3) { font-size: var(--text-md); }
-.project-body :deep(p) { margin: 0.75em 0; }
-.project-body :deep(a) { color: var(--primary); text-decoration: underline; }
+.project-body :deep(h1) {
+  font-size: var(--text-lg);
+}
+.project-body :deep(h2) {
+  font-size: var(--text-md-plus);
+}
+.project-body :deep(h3) {
+  font-size: var(--text-md);
+}
+.project-body :deep(p) {
+  margin: 0.75em 0;
+}
+.project-body :deep(a) {
+  color: var(--primary);
+  text-decoration: underline;
+}
 .project-body :deep(ul),
-.project-body :deep(ol) { margin: 0.75em 0; padding-left: 1.4em; }
-.project-body :deep(ul) { list-style: disc; }
-.project-body :deep(ol) { list-style: decimal; }
-.project-body :deep(li) { margin: 0.3em 0; }
-.project-body :deep(img) { max-width: 100%; height: auto; border-radius: 8px; }
+.project-body :deep(ol) {
+  margin: 0.75em 0;
+  padding-left: 1.4em;
+}
+.project-body :deep(ul) {
+  list-style: disc;
+}
+.project-body :deep(ol) {
+  list-style: decimal;
+}
+.project-body :deep(li) {
+  margin: 0.3em 0;
+}
+.project-body :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
 .project-body :deep(code) {
   background: rgb(255 255 255 / 0.07);
   border-radius: 4px;
@@ -214,7 +320,10 @@ const renderedBody = computed(() => {
   overflow-x: auto;
   margin: 0.9em 0;
 }
-.project-body :deep(pre code) { background: none; padding: 0; }
+.project-body :deep(pre code) {
+  background: none;
+  padding: 0;
+}
 .project-body :deep(blockquote) {
   border-left: 3px solid var(--primary);
   padding-left: 12px;

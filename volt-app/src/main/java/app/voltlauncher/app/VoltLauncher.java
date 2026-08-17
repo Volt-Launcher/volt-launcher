@@ -51,10 +51,7 @@ public class VoltLauncher {
     /** Opens the Microsoft sign-in page in the user's browser as a fallback for the Electron window. */
     private static void openInBrowser(String url) {
         try {
-            if (java.awt.Desktop.isDesktopSupported()
-                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
-                java.awt.Desktop.getDesktop().browse(java.net.URI.create(url));
-            }
+            app.voltlauncher.core.util.SystemOpener.openUrl(url);
         } catch (Exception e) {
             System.err.println("[Launcher] Could not open the sign-in page: " + e.getMessage());
         }

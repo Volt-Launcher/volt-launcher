@@ -73,6 +73,19 @@ export function createRouter() {
     send(res, next, callCurseForge('/v1/mods/files', { method: 'POST', body: { fileIds }, cacheable: true }));
   });
 
+  /**
+   * Identifies local files by CurseForge's murmur2 fingerprint. This is how a jar that the
+   * launcher did not install itself gets matched back to its project, so its versions can be
+   * managed like any other.
+   */
+  router.post('/v1/fingerprints', (req, res, next) => {
+    const fingerprints = Array.isArray(req.body?.fingerprints) ? req.body.fingerprints : null;
+    if (!fingerprints || fingerprints.length === 0) {
+      return next(new CurseForgeError('Body must contain a non-empty "fingerprints" array', 400));
+    }
+    send(res, next, callCurseForge('/v1/fingerprints', { method: 'POST', body: { fingerprints }, cacheable: true }));
+  });
+
   /** Bulk project lookup. */
   router.post('/v1/mods', (req, res, next) => {
     const modIds = Array.isArray(req.body?.modIds) ? req.body.modIds : null;

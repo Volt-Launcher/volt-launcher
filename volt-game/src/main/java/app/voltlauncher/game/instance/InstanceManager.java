@@ -135,6 +135,34 @@ public final class InstanceManager {
         });
     }
 
+    /**
+     * Re-points a profile at another game version. Used when a modpack update moves the pack to a
+     * new Minecraft or loader release; the slug — and therefore the game directory with the user's
+     * worlds in it — is deliberately untouched.
+     */
+    public Instance updateVersion(String name, String versionId, String versionType, JSONObject meta)
+            throws Exception {
+        String normalized = InstanceNamePolicy.normalize(name);
+        RequiredJava req = resolveRequiredJava(meta, versionId);
+
+        return lock.withLock(STORE_KEY, () -> {
+            List<Instance> instances = listInstances();
+            List<Instance> updated = new ArrayList<>(instances.size());
+            Instance result = null;
+            for (Instance i : instances) {
+                if (i.name().equalsIgnoreCase(normalized)) {
+                    result = i.withVersion(versionId, versionType, req.majorVersion(), req.component());
+                    updated.add(result);
+                } else {
+                    updated.add(i);
+                }
+            }
+            if (result == null) throw new IllegalStateException("Instance not found: " + normalized);
+            store.saveInstances(updated);
+            return result;
+        });
+    }
+
     public void markPlayed(Instance launched, long startedAt) throws Exception {
         lock.withLock(STORE_KEY, () -> {
             List<Instance> instances = listInstances();

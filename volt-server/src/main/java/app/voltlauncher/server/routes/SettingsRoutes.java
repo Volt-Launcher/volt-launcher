@@ -69,6 +69,7 @@ public final class SettingsRoutes implements RouteModule {
         array.put(directory("root", "Launcher directory", AppPaths.baseDirectory()));
         array.put(directory("instances", "Profiles", AppPaths.instancesDirectory()));
         array.put(directory("logs", "Logs", AppPaths.logsDirectory()));
+        array.put(directory("exports", "Exported packs", AppPaths.exportsDirectory()));
         array.put(directory("runtimes", "Java runtimes", AppPaths.runtimesDirectory()));
         array.put(directory("cache", "Cache", AppPaths.cacheDirectory()));
         return new JSONObject().put("directories", array);
@@ -86,6 +87,7 @@ public final class SettingsRoutes implements RouteModule {
             case "root" -> AppPaths.baseDirectory();
             case "instances" -> AppPaths.instancesDirectory();
             case "logs" -> AppPaths.logsDirectory();
+            case "exports" -> AppPaths.exportsDirectory();
             case "runtimes" -> AppPaths.runtimesDirectory();
             case "cache" -> AppPaths.cacheDirectory();
             default -> throw new IllegalArgumentException("Unknown directory: " + id);

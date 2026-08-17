@@ -3,6 +3,7 @@ package app.voltlauncher.providers.curseforge;
 import app.voltlauncher.core.config.SettingsStore;
 import app.voltlauncher.core.util.HttpFetcher;
 import app.voltlauncher.providers.ContentProvider;
+import app.voltlauncher.providers.FileHashes;
 import app.voltlauncher.providers.model.ContentKind;
 import app.voltlauncher.providers.model.ProjectDetail;
 import app.voltlauncher.providers.model.ProjectSummary;
@@ -16,6 +17,7 @@ import org.json.JSONObject;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -188,6 +190,42 @@ public final class CurseForgeProvider implements ContentProvider {
         return toVersion(file);
     }
 
+    /**
+     * Matches local files against CurseForge by its murmur2 file fingerprint, which is the only
+     * lookup CurseForge offers for "what is this jar?" — it has no hash search.
+     */
+    @Override
+    public Map<Path, ProjectVersion> identify(List<Path> files) throws Exception {
+        if (files.isEmpty()) return Map.of();
+
+        Map<Long, Path> byFingerprint = new LinkedHashMap<>();
+        for (Path file : files) {
+            try {
+                byFingerprint.putIfAbsent(FileHashes.curseForgeFingerprint(file), file);
+            } catch (Exception e) {
+                // An unreadable file simply cannot be identified.
+            }
+        }
+        if (byFingerprint.isEmpty()) return Map.of();
+
+        JSONObject body = new JSONObject().put("fingerprints", new JSONArray(byFingerprint.keySet()));
+        JSONObject response = http.postJson(bridgeUrl() + "/v1/fingerprints", body);
+
+        JSONObject data = response.optJSONObject("data");
+        JSONArray matches = data == null ? null : data.optJSONArray("exactMatches");
+        if (matches == null) return Map.of();
+
+        Map<Path, ProjectVersion> resolved = new LinkedHashMap<>();
+        for (int i = 0; i < matches.length(); i++) {
+            JSONObject file = matches.getJSONObject(i).optJSONObject("file");
+            if (file == null) continue;
+            Path path = byFingerprint.get(file.optLong("fileFingerprint", -1L));
+            if (path == null) continue;
+            resolved.put(path, toVersion(file));
+        }
+        return resolved;
+    }
+
     // ── mapping ───────────────────────────────────────────────────────────────
 
     private ProjectSummary toSummary(JSONObject mod, ContentKind fallbackKind) {
@@ -288,13 +326,17 @@ public final class CurseForgeProvider implements ContentProvider {
 
         int fileId = file.optInt("id", 0);
         String fileName = file.optString("fileName", "");
+        // CurseForge has no version-number field; the display name is the closest thing to one and
+        // is what the site itself shows. The raw file name is kept in its own field, so using it as
+        // the version would just repeat it — and reads badly next to a Modrinth "0.5.8".
+        String displayName = file.optString("displayName", fileName);
 
         return new ProjectVersion(
                 ProviderId.CURSEFORGE,
                 String.valueOf(fileId),
                 String.valueOf(file.optInt("modId", 0)),
-                file.optString("displayName", fileName),
-                fileName,
+                displayName,
+                displayName,
                 gameVersions,
                 loaders,
                 releaseTypeName(file.optInt("releaseType", 1)),

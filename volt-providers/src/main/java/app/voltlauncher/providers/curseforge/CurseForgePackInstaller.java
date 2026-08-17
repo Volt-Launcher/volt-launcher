@@ -2,6 +2,7 @@ package app.voltlauncher.providers.curseforge;
 
 import app.voltlauncher.core.config.SettingsStore;
 import app.voltlauncher.core.util.HttpFetcher;
+import app.voltlauncher.game.instance.ContentSource;
 import app.voltlauncher.game.instance.Instance;
 import app.voltlauncher.providers.content.AbstractModpackInstaller;
 import app.voltlauncher.providers.content.ProgressSink;
@@ -44,6 +45,21 @@ public final class CurseForgePackInstaller extends AbstractModpackInstaller {
         return ProviderId.CURSEFORGE;
     }
 
+    /** The entry every CurseForge pack zip must carry, used to recognise the format on import. */
+    public static String manifestEntry() {
+        return MANIFEST_ENTRY;
+    }
+
+    @Override
+    public PackInfo readPackInfo(Path archive) throws Exception {
+        JSONObject manifest = readJsonEntry(archive, MANIFEST_ENTRY);
+        return new PackInfo(
+                resolveVersionId(manifest),
+                manifest.optString("name", "Modpack"),
+                manifest.optString("version", ""),
+                archive);
+    }
+
     @Override
     public PackInfo fetchPackInfo(String fileId) throws Exception {
         ProjectVersion version = provider.version(fileId);
@@ -56,8 +72,11 @@ public final class CurseForgePackInstaller extends AbstractModpackInstaller {
         Path archive = Files.createTempFile("voltlauncher-pack-", ".zip");
         try {
             http.download(version.downloadUrl(), archive, version.sha1() == null ? "" : version.sha1());
-            JSONObject manifest = readJsonEntry(archive, MANIFEST_ENTRY);
-            return new PackInfo(resolveVersionId(manifest), manifest.optString("name", "Modpack"), archive);
+            PackInfo info = readPackInfo(archive);
+            String versionNumber = version.versionNumber() == null || version.versionNumber().isBlank()
+                    ? info.packVersion()
+                    : version.versionNumber();
+            return new PackInfo(info.versionId(), info.packName(), versionNumber, archive);
         } catch (Exception e) {
             Files.deleteIfExists(archive);
             throw e;
@@ -65,19 +84,20 @@ public final class CurseForgePackInstaller extends AbstractModpackInstaller {
     }
 
     @Override
-    public void applyPackContents(Instance instance, Path archive, ProgressSink progress) throws Exception {
-        try {
-            JSONObject manifest = readJsonEntry(archive, MANIFEST_ENTRY);
+    public List<ContentSource> applyPackContents(Instance instance, Path archive, ProgressSink progress)
+            throws Exception {
+        JSONObject manifest = readJsonEntry(archive, MANIFEST_ENTRY);
 
-            List<RemoteFile> files = resolveManifestFiles(manifest.optJSONArray("files"), progress);
-            downloadFiles(instance.gameDirectory(), files, progress);
+        List<RemoteFile> files = resolveManifestFiles(manifest.optJSONArray("files"), progress);
+        downloadFiles(instance.gameDirectory(), files, progress);
 
-            progress.stage(STAGE_OVERRIDES);
-            String overrides = manifest.optString("overrides", "overrides");
-            applyOverrides(instance.gameDirectory(), archive, List.of(overrides));
-        } finally {
-            Files.deleteIfExists(archive);
-        }
+        progress.stage(STAGE_OVERRIDES);
+        String overrides = manifest.optString("overrides", "overrides");
+        List<String> written = applyOverrides(instance.gameDirectory(), archive, List.of(overrides));
+
+        List<ContentSource> sources = new ArrayList<>(toContentSources(files));
+        sources.addAll(overrideContentSources(written));
+        return sources;
     }
 
     // ── internals ─────────────────────────────────────────────────────────────
@@ -160,7 +180,11 @@ public final class CurseForgePackInstaller extends AbstractModpackInstaller {
                 undownloadable.add(fileName.isBlank() ? "file " + fileId : fileName);
                 continue;
             }
-            result.add(new RemoteFile(targetFolder(file) + "/" + fileName, version.downloadUrl(), version.sha1()));
+            String sha1 = version.sha1() == null ? "" : version.sha1();
+            result.add(new RemoteFile(
+                    targetFolder(file) + "/" + fileName, version.downloadUrl(), sha1, sha1,
+                    version.projectId(), version.versionId(),
+                    file.optString("displayName", ""), version.versionNumber()));
         }
 
         if (!undownloadable.isEmpty()) {

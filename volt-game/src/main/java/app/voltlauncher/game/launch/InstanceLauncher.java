@@ -2,6 +2,7 @@ package app.voltlauncher.game.launch;
 
 import app.voltlauncher.auth.MinecraftAccountSession;
 import app.voltlauncher.core.AppPaths;
+import app.voltlauncher.core.config.SettingsStore;
 import app.voltlauncher.core.util.async.NamedLock;
 import app.voltlauncher.core.util.async.ProcessRegistry;
 import app.voltlauncher.game.install.AssetInstaller;
@@ -35,6 +36,7 @@ public final class InstanceLauncher {
     private final AssetInstaller assetInstaller;
     private final LaunchCommandBuilder commandBuilder;
     private final JavaRuntimeResolver javaResolver;
+    private final SettingsStore launcherSettings;
     private final ProcessRegistry processRegistry;
     private final NamedLock launchLock = new NamedLock();
     private final ConcurrentHashMap<String, RunningInstance> runningMeta = new ConcurrentHashMap<>();
@@ -46,13 +48,15 @@ public final class InstanceLauncher {
             IPlatform defaultPlatform,
             AssetInstaller assetInstaller,
             LaunchCommandBuilder commandBuilder,
-            JavaRuntimeResolver javaResolver) {
+            JavaRuntimeResolver javaResolver,
+            SettingsStore launcherSettings) {
         this.instanceManager = instanceManager;
         this.platformRegistry = platformRegistry;
         this.defaultPlatform = defaultPlatform;
         this.assetInstaller = assetInstaller;
         this.commandBuilder = commandBuilder;
         this.javaResolver = javaResolver;
+        this.launcherSettings = launcherSettings;
         this.processRegistry = new ProcessRegistry((key, unused) -> onProcessExit(key));
     }
 
@@ -177,10 +181,19 @@ public final class InstanceLauncher {
         return null;
     }
 
-    /** A per-instance Java override wins over auto-detection; anything else resolves by major version. */
+    /**
+     * Java is picked in order of how specific the choice is: the profile's own override first, then
+     * the path the user pinned for this major version under Settings → Java & memory, and only then
+     * auto-detection.
+     */
     private JavaRuntimeResolver.JavaRuntime resolveRuntimeFor(Instance instance, int requiredMajor) throws Exception {
         String override = instance.settings().javaPath();
-        if (override == null || override.isBlank()) {
+        String source = "user-override";
+        if (isBlank(override)) {
+            override = configuredJavaPath(requiredMajor);
+            source = "settings-override";
+        }
+        if (isBlank(override)) {
             return javaResolver.resolveRuntime(requiredMajor);
         }
 
@@ -192,7 +205,22 @@ public final class InstanceLauncher {
         if (!Files.isExecutable(candidate)) {
             throw new IllegalStateException("Configured Java path is not executable: " + override);
         }
-        return new JavaRuntimeResolver.JavaRuntime(requiredMajor, candidate.toAbsolutePath().normalize(), "user-override");
+        return new JavaRuntimeResolver.JavaRuntime(requiredMajor, candidate.toAbsolutePath().normalize(), source);
+    }
+
+    /** The launcher-wide Java path pinned for a major version, or {@code null} to auto-detect. */
+    private String configuredJavaPath(int requiredMajor) {
+        if (launcherSettings == null) return null;
+        try {
+            return launcherSettings.get().javaPathFor(requiredMajor);
+        } catch (Exception e) {
+            System.err.println("[Launcher] Could not read the configured Java runtimes: " + e);
+            return null;
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private void onProcessExit(String key) {

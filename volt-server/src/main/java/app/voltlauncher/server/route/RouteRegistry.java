@@ -84,18 +84,20 @@ public final class RouteRegistry {
             // A well-formed request the launcher cannot satisfy right now, e.g. deleting a
             // running instance or a provider whose bridge is offline.
             respond(ctx, 409, error(e));
-        } catch (Exception e) {
-            System.err.println("[API] " + ctx.method() + " " + ctx.path() + " failed: " + e);
-            e.printStackTrace(System.err);
-            respond(ctx, 500, error(e));
+        } catch (Throwable t) {
+            // Throwable, not Exception: in the packaged native image a missing JDK feature surfaces
+            // as a linkage Error, and letting it escape gave the UI an empty 500 with no message.
+            System.err.println("[API] " + ctx.method() + " " + ctx.path() + " failed: " + t);
+            t.printStackTrace(System.err);
+            respond(ctx, 500, error(t));
         }
     }
 
-    private JSONObject error(Exception e) {
-        String message = e.getMessage();
+    private JSONObject error(Throwable t) {
+        String message = t.getMessage();
         return new JSONObject()
                 .put("success", false)
-                .put("error", message == null || message.isBlank() ? e.getClass().getSimpleName() : message);
+                .put("error", message == null || message.isBlank() ? t.getClass().getSimpleName() : message);
     }
 
     private void respond(Context ctx, int status, JSONObject body) {

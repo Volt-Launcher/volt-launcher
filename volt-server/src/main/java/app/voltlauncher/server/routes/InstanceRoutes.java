@@ -2,10 +2,12 @@ package app.voltlauncher.server.routes;
 
 import app.voltlauncher.auth.MinecraftAccountSession;
 import app.voltlauncher.auth.session.MicrosoftAuth;
+import app.voltlauncher.core.util.SystemOpener;
 import app.voltlauncher.game.MinecraftLauncherService;
 import app.voltlauncher.game.instance.Instance;
 import app.voltlauncher.game.instance.InstanceBusyRegistry;
 import app.voltlauncher.game.instance.InstanceSettings;
+import app.voltlauncher.game.instance.ModpackOrigin;
 import app.voltlauncher.game.instance.RunningInstanceStatus;
 import app.voltlauncher.game.launch.InstanceLauncher;
 import app.voltlauncher.game.platform.IPlatform;
@@ -17,7 +19,6 @@ import io.javalin.http.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.awt.Desktop;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -180,6 +181,12 @@ public final class InstanceRoutes implements RouteModule {
                 .put("running", running != null)
                 .put("launchPhase", state.phase().name().toLowerCase(Locale.ROOT));
 
+        // Profiles built from a modpack carry its artwork, so the grid can show the real icon
+        // instead of a version emoji. Hand-made profiles have none and keep the placeholder.
+        ModpackOrigin pack = launcher.contentManifests().read(instance.slug()).modpack();
+        json.put("packName", pack == null ? "" : pack.name())
+                .put("packIconUrl", pack == null ? "" : pack.iconUrl());
+
         // A profile mid-install exists but is not yet playable; the UI disables its controls.
         InstanceBusyRegistry.Activity busy = launcher.busyRegistry().get(instance.name());
         json.put("busy", busy != null);
@@ -210,26 +217,8 @@ public final class InstanceRoutes implements RouteModule {
         return array;
     }
 
-    /**
-     * Opens a directory in the desktop file manager. AWT's Desktop integration is unavailable on
-     * many Linux setups, so a per-platform command is used as a fallback.
-     */
+    /** Opens a directory in the desktop file manager. */
     static void openInFileManager(Path path) throws IOException {
-        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
-            try {
-                Desktop.getDesktop().open(path.toFile());
-                return;
-            } catch (IOException ignored) {
-                // Fall through to the command-line opener.
-            }
-        }
-
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        List<String> command = os.contains("win")
-                ? List.of("explorer.exe", path.toString())
-                : os.contains("mac") || os.contains("darwin")
-                        ? List.of("open", path.toString())
-                        : List.of("xdg-open", path.toString());
-        new ProcessBuilder(command).start();
+        SystemOpener.openPath(path);
     }
 }

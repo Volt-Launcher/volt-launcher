@@ -1,7 +1,9 @@
 package app.voltlauncher.providers.content;
 
 import app.voltlauncher.core.util.HttpFetcher;
+import app.voltlauncher.game.instance.ContentSource;
 import app.voltlauncher.game.instance.Instance;
+import app.voltlauncher.game.instance.InstanceContentService;
 import app.voltlauncher.providers.model.ProviderId;
 import org.json.JSONObject;
 
@@ -11,6 +13,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,26 +41,52 @@ public abstract class AbstractModpackInstaller {
         this.http = http;
     }
 
-    /** Metadata read from a downloaded pack, before an instance exists. */
-    public record PackInfo(String versionId, String packName, Path archiveFile) {}
+    /**
+     * Metadata read from a pack archive, before an instance exists.
+     *
+     * @param packVersion the pack's own version string, shown when offering an update
+     */
+    public record PackInfo(String versionId, String packName, String packVersion, Path archiveFile) {}
 
     /**
      * One file the pack pulls from the network. Public because Java only lets a subclass invoke a
      * protected constructor through {@code super()}, never with {@code new}.
      */
-    public record RemoteFile(String relativePath, String url, String hash) {}
+    public record RemoteFile(
+            String relativePath,
+            String url,
+            String hash,
+            String sha1,
+            String projectId,
+            String versionId,
+            String projectName,
+            String versionNumber) {
+
+        /** A file the pack references without any resolvable project behind it. */
+        public static RemoteFile untracked(String relativePath, String url, String hash, String sha1) {
+            return new RemoteFile(relativePath, url, hash, sha1, "", "", "", "");
+        }
+    }
 
     public abstract ProviderId provider();
 
-    /** Downloads the pack archive and reads the launcher version id and display name from it. */
+    /** Reads the launcher version id and display name out of an archive already on disk. */
+    public abstract PackInfo readPackInfo(Path archive) throws Exception;
+
+    /** Downloads the pack archive for a provider version, then reads its metadata. */
     public abstract PackInfo fetchPackInfo(String versionId) throws Exception;
 
     /**
-     * Installs the pack's contents into the instance. The archive is deleted afterwards.
+     * Installs the pack's contents into the instance and reports every file that landed in a
+     * content folder, so the caller can record where each one came from.
+     *
+     * <p>The archive is left in place; the caller owns its lifetime, because an update needs to
+     * read it again after the contents have been applied.
      *
      * @param progress receives stage changes and download counts
      */
-    public abstract void applyPackContents(Instance instance, Path archive, ProgressSink progress) throws Exception;
+    public abstract List<ContentSource> applyPackContents(
+            Instance instance, Path archive, ProgressSink progress) throws Exception;
 
     // ── shared helpers ────────────────────────────────────────────────────────
 
@@ -73,6 +102,20 @@ public abstract class AbstractModpackInstaller {
             }
         }
         throw new IllegalStateException(entryName + " not found in the modpack archive");
+    }
+
+    /** Whether an archive carries the given entry, used to tell pack formats apart. */
+    public static boolean hasEntry(Path archive, String entryName) {
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(archive))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (entryName.equals(entry.getName())) return true;
+                zip.closeEntry();
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        return false;
     }
 
     /**
@@ -132,8 +175,11 @@ public abstract class AbstractModpackInstaller {
     /**
      * Copies the pack's override trees over the game directory. Entries escaping the game
      * directory are refused rather than silently skipped.
+     *
+     * @return the game-relative paths that were written
      */
-    protected void applyOverrides(Path gameDir, Path archive, List<String> prefixes) throws Exception {
+    protected List<String> applyOverrides(Path gameDir, Path archive, List<String> prefixes) throws Exception {
+        List<String> written = new ArrayList<>();
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(archive))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -150,9 +196,58 @@ public abstract class AbstractModpackInstaller {
                 }
                 Files.createDirectories(destination.getParent());
                 Files.copy(zip, destination, StandardCopyOption.REPLACE_EXISTING);
+                written.add(relative);
                 zip.closeEntry();
             }
         }
+        return written;
+    }
+
+    /**
+     * Turns downloaded pack files into provenance records. Only files inside a content folder are
+     * recorded — a pack also ships configs and scripts, which are not individually manageable.
+     */
+    protected List<ContentSource> toContentSources(List<RemoteFile> files) {
+        List<ContentSource> sources = new ArrayList<>();
+        for (RemoteFile file : files) {
+            ContentSource source = toContentSource(
+                    file.relativePath(), file.projectId(), file.versionId(),
+                    file.projectName(), file.versionNumber(), file.url(), file.sha1());
+            if (source != null) sources.add(source);
+        }
+        return sources;
+    }
+
+    /** Records override-shipped content, which has no project behind it but still belongs to the pack. */
+    protected List<ContentSource> overrideContentSources(List<String> relativePaths) {
+        List<ContentSource> sources = new ArrayList<>();
+        for (String relative : relativePaths) {
+            ContentSource source = toContentSource(relative, "", "", "", "", "", "");
+            if (source != null) sources.add(source);
+        }
+        return sources;
+    }
+
+    private ContentSource toContentSource(String relativePath, String projectId, String versionId,
+                                          String projectName, String versionNumber, String url, String hash) {
+        String normalized = relativePath.replace('\\', '/');
+        int slash = normalized.indexOf('/');
+        if (slash <= 0) return null;
+
+        String folder = normalized.substring(0, slash).toLowerCase(Locale.ROOT);
+        String fileName = normalized.substring(slash + 1);
+        // Only top-level files in a content folder; a pack nesting jars deeper is not manageable.
+        if (fileName.isBlank() || fileName.contains("/")) return null;
+
+        boolean known = false;
+        for (InstanceContentService.ContentType type : InstanceContentService.ContentType.values()) {
+            if (type.folder().equals(folder)) { known = true; break; }
+        }
+        if (!known) return null;
+
+        return new ContentSource(folder, fileName, projectId.isEmpty() ? "" : provider().id(),
+                projectId, versionId, projectName, versionNumber, url,
+                hash != null && hash.length() == 40 ? hash : "", 0L, ContentSource.ORIGIN_MODPACK, "");
     }
 
     private String stripPrefix(String entryName, List<String> prefixes) {

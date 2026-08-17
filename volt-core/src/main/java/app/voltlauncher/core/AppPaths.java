@@ -125,6 +125,13 @@ public final class AppPaths {
         return baseDirectory().resolve("logs");
     }
 
+    // ── exports ───────────────────────────────────────────────────────────────
+
+    /** Where exported modpack archives are written, so the user has one place to find them. */
+    public static Path exportsDirectory() {
+        return baseDirectory().resolve("exports");
+    }
+
     // ── java runtimes ─────────────────────────────────────────────────────────
 
     public static Path runtimesDirectory() {

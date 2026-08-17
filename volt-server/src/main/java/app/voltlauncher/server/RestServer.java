@@ -7,7 +7,9 @@ import app.voltlauncher.game.MinecraftLauncherService;
 import app.voltlauncher.game.java.JavaInstallService;
 import app.voltlauncher.providers.ProviderRegistry;
 import app.voltlauncher.providers.content.ContentInstallService;
+import app.voltlauncher.providers.content.ContentVersionService;
 import app.voltlauncher.providers.content.ModpackInstallService;
+import app.voltlauncher.providers.content.PackExportService;
 import app.voltlauncher.providers.curseforge.CurseForgeProvider;
 import app.voltlauncher.providers.model.ProviderId;
 import app.voltlauncher.server.route.RouteRegistry;
@@ -40,6 +42,8 @@ public final class RestServer {
     private final SettingsStore settings;
     private final ProviderRegistry providers;
     private final ContentInstallService contentInstaller;
+    private final ContentVersionService contentVersions;
+    private final PackExportService packExporter;
     private final ModpackInstallService modpackInstaller;
     private final JavaInstallService javaInstaller;
     private final SkinStore skinStore;
@@ -66,11 +70,13 @@ public final class RestServer {
         try {
             this.settings = new SettingsStore();
             this.auth = new MicrosoftAuth();
-            this.launcher = new MinecraftLauncherService(auth.getClientId());
+            this.launcher = new MinecraftLauncherService(auth.getClientId(), settings);
             this.providers = new ProviderRegistry(launcher.http(), settings);
             this.contentInstaller = new ContentInstallService(launcher, providers, launcher.http());
+            this.contentVersions = new ContentVersionService(launcher, providers, launcher.http());
+            this.packExporter = new PackExportService(launcher);
             this.modpackInstaller = new ModpackInstallService(
-                    launcher, launcher.http(),
+                    launcher, providers, launcher.http(),
                     (CurseForgeProvider) providers.require(ProviderId.CURSEFORGE), settings);
             this.javaInstaller = new JavaInstallService(launcher.javaResolver());
             this.skinStore = new SkinStore();
@@ -89,8 +95,8 @@ public final class RestServer {
             new RouteRegistry(config, true)
                     .module(new AuthRoutes(auth, openUrl))
                     .module(new InstanceRoutes(launcher, auth))
-                    .module(new ContentRoutes(launcher))
-                    .module(new ProviderRoutes(providers, contentInstaller, modpackInstaller))
+                    .module(new ContentRoutes(launcher, contentVersions))
+                    .module(new ProviderRoutes(providers, contentInstaller, modpackInstaller, packExporter))
                     .module(new SettingsRoutes(settings, launcher.javaResolver(), javaInstaller, LAUNCHER_VERSION))
                     .module(new SkinRoutes(skinStore, auth))
                     .module(new WindowRoutes(minimizeWindow, maximizeWindow, closeWindow))

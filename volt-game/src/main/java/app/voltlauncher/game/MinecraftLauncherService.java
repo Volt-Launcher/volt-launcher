@@ -1,6 +1,7 @@
 package app.voltlauncher.game;
 
 import app.voltlauncher.auth.MinecraftAccountSession;
+import app.voltlauncher.core.config.SettingsStore;
 import app.voltlauncher.core.util.HttpFetcher;
 import app.voltlauncher.game.install.AssetInstaller;
 import app.voltlauncher.game.instance.Instance;
@@ -17,6 +18,7 @@ import app.voltlauncher.game.platform.PlatformRegistry;
 import app.voltlauncher.game.platform.version.AvailableVersion;
 import app.voltlauncher.game.platform.version.VersionOrdering;
 import app.voltlauncher.game.platform.version.resolver.VanillaVersionResolver;
+import app.voltlauncher.game.store.ContentManifestStore;
 import app.voltlauncher.game.store.LauncherInstanceStore;
 import org.json.JSONObject;
 
@@ -42,9 +44,14 @@ public final class MinecraftLauncherService {
     private final JavaRuntimeResolver javaResolver;
     private final InstanceLauncher instanceLauncher;
     private final InstanceContentService contentService;
+    private final ContentManifestStore contentManifests;
     private final InstanceBusyRegistry busyRegistry = new InstanceBusyRegistry();
 
-    public MinecraftLauncherService(String launcherClientId) {
+    /**
+     * @param launcherSettings the launcher-wide preferences that supply the default heap size, JVM
+     *                         arguments and pinned Java paths for profiles that do not override them
+     */
+    public MinecraftLauncherService(String launcherClientId, SettingsStore launcherSettings) {
         this.http = new HttpFetcher();
         this.versionResolver = new VanillaVersionResolver(http);
         this.platformRegistry = PlatformRegistry.withDefaults(versionResolver, http);
@@ -52,10 +59,11 @@ public final class MinecraftLauncherService {
         this.javaResolver = new JavaRuntimeResolver();
         this.assetInstaller = new AssetInstaller(http, versionResolver, javaResolver);
         this.instanceManager = new InstanceManager(new LauncherInstanceStore(), versionResolver, platformRegistry);
-        this.contentService = new InstanceContentService(instanceManager);
+        this.contentManifests = new ContentManifestStore();
+        this.contentService = new InstanceContentService(instanceManager, contentManifests);
         this.instanceLauncher = new InstanceLauncher(
-                instanceManager, platformRegistry, defaultPlatform,
-                assetInstaller, new LaunchCommandBuilder(launcherClientId), javaResolver);
+                instanceManager, platformRegistry, defaultPlatform, assetInstaller,
+                new LaunchCommandBuilder(launcherClientId, launcherSettings), javaResolver, launcherSettings);
     }
 
     // ── Collaborator access (used by provider integrations) ───────────────────
@@ -150,6 +158,23 @@ public final class MinecraftLauncherService {
         return instanceManager.updateSettings(name, settings);
     }
 
+    /**
+     * Moves a profile onto another game version, keeping its directory and content. Used by a
+     * modpack update whose new release targets a different Minecraft or loader build.
+     */
+    public Instance repointInstance(String name, String versionId) throws Exception {
+        IPlatform platform = platformRegistry.resolvePlatformForVersion(versionId, defaultPlatform);
+        JSONObject meta = platform.versionResolver().resolveMetadata(versionId);
+        String versionType = PlatformRegistry.VANILLA_ID.equals(platform.id())
+                ? meta.optString("type", "release")
+                : platform.id();
+
+        Instance updated = instanceManager.updateVersion(
+                name, meta.optString("id", versionId), versionType, meta);
+        assetInstaller.ensureInstallation(updated, meta);
+        return updated;
+    }
+
     // ── Content (mods / resourcepacks / shaderpacks / datapacks) ───────────────
 
     public List<InstanceContentService.ContentEntry> listContent(
@@ -177,6 +202,11 @@ public final class MinecraftLauncherService {
 
     public InstanceContentService contentService() {
         return contentService;
+    }
+
+    /** Provenance records for installed files, used by update, import and export. */
+    public ContentManifestStore contentManifests() {
+        return contentManifests;
     }
 
     // ── Version queries ───────────────────────────────────────────────────────

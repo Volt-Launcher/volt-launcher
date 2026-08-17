@@ -254,7 +254,30 @@ const installModpack = async (
     error.value = errorMessage(e, t("install.packFailed"));
     return null;
   }
+  return trackModpackJob(jobId, name);
+};
 
+/**
+ * Installs a `.mrpack` or CurseForge `.zip` from disk. The backend recognises the format from the
+ * manifest inside the archive, so the user does not have to say which platform it came from.
+ */
+const importModpack = async (path: string, name = ""): Promise<string | null> => {
+  let jobId: string;
+  try {
+    const response = await apiSend<{ success: boolean; jobId: string }>("POST", "/api/modpacks/import", {
+      path,
+      name,
+    });
+    jobId = response.jobId;
+  } catch (e) {
+    error.value = errorMessage(e, t("import.failed"));
+    return null;
+  }
+  return trackModpackJob(jobId, name);
+};
+
+/** Follows an already-started pack job (install, import or update) to completion. */
+const trackModpackJob = async (jobId: string, name = ""): Promise<string | null> => {
   modpackProgress.value = {
     phase: "fetching",
     stage: "fetching",
@@ -368,6 +391,8 @@ export function useProviders() {
     isInstalling,
     installIntoProfile,
     installModpack,
+    importModpack,
+    trackModpackJob,
     modpackProgress,
     isInstallingModpack,
 

@@ -2,6 +2,7 @@ package app.voltlauncher.providers.modrinth;
 
 import app.voltlauncher.core.util.HttpFetcher;
 import app.voltlauncher.providers.ContentProvider;
+import app.voltlauncher.providers.FileHashes;
 import app.voltlauncher.providers.model.ContentKind;
 import app.voltlauncher.providers.model.ProjectDetail;
 import app.voltlauncher.providers.model.ProjectSummary;
@@ -15,6 +16,7 @@ import org.json.JSONObject;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -116,6 +118,40 @@ public final class ModrinthProvider implements ContentProvider {
     @Override
     public ProjectVersion version(String versionId) throws Exception {
         return toVersion(http.getJson(API_BASE + "/version/" + encode(versionId), HEADERS));
+    }
+
+    /**
+     * Matches local files against Modrinth by SHA-1. One bulk request covers the whole folder,
+     * and the response is keyed by the hash that was sent, so the paths map straight back.
+     */
+    @Override
+    public Map<Path, ProjectVersion> identify(List<Path> files) throws Exception {
+        if (files.isEmpty()) return Map.of();
+
+        Map<String, Path> byHash = new LinkedHashMap<>();
+        for (Path file : files) {
+            try {
+                byHash.putIfAbsent(FileHashes.sha1(file), file);
+            } catch (Exception e) {
+                // An unreadable file simply cannot be identified.
+            }
+        }
+        if (byHash.isEmpty()) return Map.of();
+
+        JSONObject body = new JSONObject()
+                .put("hashes", new JSONArray(byHash.keySet()))
+                .put("algorithm", "sha1");
+        JSONObject response = http.postJson(API_BASE + "/version_files", body, HEADERS);
+
+        Map<Path, ProjectVersion> matches = new LinkedHashMap<>();
+        for (String hash : response.keySet()) {
+            Path file = byHash.get(hash);
+            JSONObject version = response.optJSONObject(hash);
+            if (file != null && version != null) {
+                matches.put(file, toVersion(version));
+            }
+        }
+        return matches;
     }
 
     // ── mapping ───────────────────────────────────────────────────────────────

@@ -3,7 +3,17 @@ import { ref, reactive, computed, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import { useLauncher } from '@/composables/useLauncher';
 import InstallProgress from '@/components/discover/InstallProgress.vue';
-import type { LauncherInstance, ContentEntry, ContentType, InstanceSettings } from '@/composables/useLauncher';
+import type {
+  LauncherInstance,
+  ContentEntry,
+  ContentType,
+  ContentUpdate,
+  ExportFormat,
+  ExportResult,
+  InstanceSettings,
+  ModpackStatus,
+  ProjectVersion,
+} from '@/composables/useLauncher';
 
 const {
   t,
@@ -17,14 +27,18 @@ const {
   deleteTargetInstance,
   profileFilter,
   selectedInstanceName,
+  instances,
   filteredInstances,
+  settings,
   pendingInstances,
   visiblePendingInstances,
   isLoadingInstances,
   isLaunching,
   versionEmoji,
   formatRelativeDate,
+  formatRelativeIso,
   formatLoaderId,
+  handleImgError,
   handleDeleteInstance,
   handleRenameInstance,
   handleOpenInstanceFolder,
@@ -34,6 +48,19 @@ const {
   addInstanceContent,
   removeInstanceContent,
   toggleInstanceContent,
+  identifyContent,
+  checkContentUpdates,
+  loadContentVersions,
+  changeContentVersion,
+  loadModpackStatus,
+  loadModpackVersions,
+  startModpackUpdate,
+  exportInstance,
+  importModpack,
+  trackModpackJob,
+  loadInstances,
+  openDirectory,
+  launcherMessage,
   error,
 } = useLauncher();
 
@@ -47,16 +74,31 @@ const versionGradientClass = (type: string) => ({
 }[type] ?? 'bg-[linear-gradient(135deg,#0a1535,#122050)]');
 
 // ── Manage view ───────────────────────────────────────────────────────────────
-const managingInstance = ref<LauncherInstance | null>(null);
+// Only the name is held; the profile itself is looked up in the live list on every render. A
+// snapshot would freeze at whatever the profile looked like when the view opened and would go
+// stale the moment the three-second poll refreshed the list.
+const managingInstanceName = ref<string | null>(null);
+const managingInstance = computed(
+  () => instances.value.find((inst) => inst.name === managingInstanceName.value) ?? null,
+);
 
 function openManage(inst: LauncherInstance) {
   // A profile mid-install has no stable content to manage yet.
   if (inst.busy) return;
-  managingInstance.value = inst;
+  managingInstanceName.value = inst.name;
 }
 
 function closeManage() {
-  managingInstance.value = null;
+  managingInstanceName.value = null;
+}
+
+/** Keeps the manage view on the same profile after a rename, instead of dropping back to the grid. */
+async function renameManaged(oldName: string, newName: string) {
+  const trimmed = newName.trim();
+  await handleRenameInstance(oldName, trimmed);
+  if (managingInstanceName.value === oldName && instances.value.some((i) => i.name === trimmed)) {
+    managingInstanceName.value = trimmed;
+  }
 }
 
 // ── Play action ───────────────────────────────────────────────────────────────
@@ -138,6 +180,96 @@ async function refreshContent(type: ContentType) {
   isLoadingContent.value = true;
   contentItems.value = await loadInstanceContent(managingInstance.value.name, type);
   isLoadingContent.value = false;
+  // Update state belongs to the file list that produced it.
+  contentUpdates.value = [];
+  hasCheckedUpdates.value = false;
+}
+
+// ── Content version management ────────────────────────────────────────────────
+const contentUpdates = ref<ContentUpdate[]>([]);
+const hasCheckedUpdates = ref(false);
+const isCheckingUpdates = ref(false);
+const updatingFiles = ref<string[]>([]);
+
+/** The pending update for one file, or undefined when it is current. */
+const updateFor = (fileName: string) => contentUpdates.value.find((u) => u.fileName === fileName);
+
+/**
+ * Identifying unknown files runs first: a jar the launcher did not install has no project behind
+ * it, so it would be skipped by the update sweep entirely — which reads as "this mod never
+ * updates" rather than "the launcher does not know what it is".
+ */
+async function onCheckUpdates() {
+  const type = activeContentType.value;
+  if (!managingInstance.value || !type) return;
+  const name = managingInstance.value.name;
+
+  isCheckingUpdates.value = true;
+  const identified = await identifyContent(name, type);
+  if (identified > 0) {
+    contentItems.value = await loadInstanceContent(name, type);
+    launcherMessage.value = t('content.identified', { n: identified });
+  }
+  contentUpdates.value = await checkContentUpdates(name, type);
+  isCheckingUpdates.value = false;
+  hasCheckedUpdates.value = true;
+}
+
+async function applyUpdate(update: ContentUpdate) {
+  const type = activeContentType.value;
+  if (!managingInstance.value || !type) return;
+  updatingFiles.value = [...updatingFiles.value, update.fileName];
+  const ok = await changeContentVersion(
+    managingInstance.value.name, type, update.fileName, update.latestVersionId);
+  updatingFiles.value = updatingFiles.value.filter((f) => f !== update.fileName);
+  if (ok) {
+    contentUpdates.value = contentUpdates.value.filter((u) => u.fileName !== update.fileName);
+    await refreshContent(type);
+    // refreshContent clears the list, so put back what is still pending.
+    contentUpdates.value = contentUpdates.value.filter((u) => u.fileName !== update.fileName);
+  }
+}
+
+/** Updates sequentially — the backend marks the profile busy for each one. */
+async function applyAllUpdates() {
+  const type = activeContentType.value;
+  if (!managingInstance.value || !type) return;
+  const pending = [...contentUpdates.value];
+  for (const update of pending) {
+    updatingFiles.value = [...updatingFiles.value, update.fileName];
+    await changeContentVersion(managingInstance.value.name, type, update.fileName, update.latestVersionId);
+    updatingFiles.value = updatingFiles.value.filter((f) => f !== update.fileName);
+  }
+  await refreshContent(type);
+  await onCheckUpdates();
+}
+
+// ── Per-file version picker ───────────────────────────────────────────────────
+const versionPickerFile = ref<ContentEntry | null>(null);
+const versionPickerList = ref<ProjectVersion[]>([]);
+const isLoadingVersionList = ref(false);
+
+async function openVersionPicker(item: ContentEntry) {
+  const type = activeContentType.value;
+  if (!managingInstance.value || !type || !item.tracked) return;
+  versionPickerFile.value = item;
+  isLoadingVersionList.value = true;
+  versionPickerList.value = await loadContentVersions(managingInstance.value.name, type, item.fileName);
+  isLoadingVersionList.value = false;
+}
+
+function closeVersionPicker() {
+  versionPickerFile.value = null;
+  versionPickerList.value = [];
+}
+
+async function pickVersion(version: ProjectVersion) {
+  const type = activeContentType.value;
+  const item = versionPickerFile.value;
+  if (!managingInstance.value || !type || !item) return;
+  const ok = await changeContentVersion(managingInstance.value.name, type, item.fileName, version.versionId);
+  closeVersionPicker();
+  if (ok) await refreshContent(type);
 }
 
 // Electron 32+ removed File.path; the absolute path must be resolved via webUtils.
@@ -214,8 +346,123 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ── Modpack import ────────────────────────────────────────────────────────────
+const packFileInput = ref<HTMLInputElement | null>(null);
+const isImportingPack = ref(false);
+const isDraggingPack = ref(false);
+
+const PACK_EXTENSIONS = ['.mrpack', '.zip'];
+
+async function importPackFrom(paths: string[]) {
+  const pack = paths.find((p) => PACK_EXTENSIONS.some((ext) => p.toLowerCase().endsWith(ext)));
+  if (!pack) {
+    error.value = t('import.wrongType');
+    return;
+  }
+  isImportingPack.value = true;
+  const created = await importModpack(pack);
+  isImportingPack.value = false;
+  if (created) await loadInstances();
+}
+
+async function onPackBrowse(e: Event) {
+  const target = e.target as HTMLInputElement;
+  await importPackFrom(extractPaths(target.files));
+  target.value = '';
+}
+
+async function onPackDrop(e: DragEvent) {
+  isDraggingPack.value = false;
+  await importPackFrom(extractPaths(e.dataTransfer?.files ?? null));
+}
+
+// ── Modpack updating ──────────────────────────────────────────────────────────
+const modpackStatus = ref<ModpackStatus | null>(null);
+const isUpdatingPack = ref(false);
+const packReleases = ref<ProjectVersion[]>([]);
+const showReleasePicker = ref(false);
+
+/** Loaded whenever the manage view lands on another profile. */
+watch(() => managingInstance.value?.name, async (name) => {
+  modpackStatus.value = null;
+  packReleases.value = [];
+  showReleasePicker.value = false;
+  if (name) modpackStatus.value = await loadModpackStatus(name);
+}, { immediate: true });
+
+async function runPackUpdate(versionId: string) {
+  if (!managingInstance.value) return;
+  const name = managingInstance.value.name;
+  isUpdatingPack.value = true;
+  showReleasePicker.value = false;
+  const jobId = await startModpackUpdate(name, versionId);
+  if (jobId) {
+    const finished = await trackModpackJob(jobId, name);
+    if (finished) launcherMessage.value = t('modpack.updated');
+  }
+  isUpdatingPack.value = false;
+  await loadInstances();
+  modpackStatus.value = await loadModpackStatus(name);
+  if (activeContentType.value) await refreshContent(activeContentType.value);
+}
+
+async function openReleasePicker() {
+  if (!managingInstance.value) return;
+  showReleasePicker.value = true;
+  packReleases.value = await loadModpackVersions(managingInstance.value.name);
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+// Reachable both from the manage view and from a card's menu, so the target is held explicitly
+// rather than assumed to be whatever profile is being managed.
+const exportTargetName = ref('');
+const showExportModal = ref(false);
+const exportFormat = ref<ExportFormat>('mrpack');
+const exportVersion = ref('1.0.0');
+const isExporting = ref(false);
+const exportResult = ref<ExportResult | null>(null);
+
+function openExportFor(inst: LauncherInstance) {
+  exportTargetName.value = inst.name;
+  exportResult.value = null;
+  exportVersion.value = '1.0.0';
+  showExportModal.value = true;
+  closeMenu();
+}
+
+function openExport() {
+  if (!managingInstance.value) return;
+  exportTargetName.value = managingInstance.value.name;
+  exportResult.value = null;
+  exportVersion.value = modpackStatus.value?.modpack?.versionNumber || '1.0.0';
+  showExportModal.value = true;
+  closeMenu();
+}
+
+async function runExport() {
+  if (!exportTargetName.value) return;
+  isExporting.value = true;
+  exportResult.value = await exportInstance(
+    exportTargetName.value, exportFormat.value, exportVersion.value);
+  isExporting.value = false;
+}
+
 // ── Settings form ───────────────────────────────────────────────────────────────
-const settingsForm = reactive({
+/**
+ * The numeric fields are bound to `<input type="number">`, and Vue applies the `.number` modifier
+ * to those implicitly — so they hold a number as soon as the user types one, and the empty string
+ * only while the field is blank. Both shapes have to be accepted on the way back out.
+ */
+interface SettingsForm {
+  maxMemoryMb: string | number;
+  minMemoryMb: string | number;
+  jvmArgs: string;
+  resolutionWidth: string | number;
+  resolutionHeight: string | number;
+  javaPath: string;
+}
+
+const settingsForm = reactive<SettingsForm>({
   maxMemoryMb: '',
   minMemoryMb: '',
   jvmArgs: '',
@@ -225,6 +472,17 @@ const settingsForm = reactive({
 });
 const isSavingSettings = ref(false);
 const settingsSaved = ref(false);
+
+/**
+ * What an empty field falls back to at launch, so the placeholders tell the truth about what the
+ * profile will actually use rather than showing a hardcoded number.
+ */
+const settingsPlaceholders = computed(() => ({
+  maxMemoryMb: String(settings.value.defaultMaxMemoryMb),
+  minMemoryMb: String(settings.value.defaultMinMemoryMb),
+  jvmArgs: settings.value.defaultJvmArgs || '-XX:+UseG1GC',
+  javaPath: t('profiles.settingsJavaAuto', { version: managingInstance.value?.javaMajorVersion ?? '' }),
+}));
 
 function loadSettingsForm() {
   settingsSaved.value = false;
@@ -237,11 +495,15 @@ function loadSettingsForm() {
   settingsForm.javaPath = s?.javaPath ?? '';
 }
 
-function parseIntOrNull(v: string): number | null {
-  const t = v.trim();
-  if (t === '') return null;
-  const n = Number.parseInt(t, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+/** An empty, blank or non-positive field means "no override" and is stored as null. */
+function parseIntOrNull(value: string | number): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+  }
+  const trimmed = String(value ?? '').trim();
+  if (trimmed === '') return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 async function saveSettings() {
@@ -258,8 +520,8 @@ async function saveSettings() {
   const ok = await handleUpdateInstanceSettings(managingInstance.value.name, payload);
   isSavingSettings.value = false;
   if (ok) {
-    // Keep the panel open; sync the local snapshot so the form reflects what was stored.
-    managingInstance.value = { ...managingInstance.value, settings: payload };
+    // The saved profile is written back into the shared list, which `managingInstance` reads
+    // from — so reloading the form now shows exactly what the backend stored.
     loadSettingsForm();
     settingsSaved.value = true;
     window.setTimeout(() => { settingsSaved.value = false; }, 2500);
@@ -285,10 +547,13 @@ async function saveSettings() {
             </button>
           </div>
           <div class="flex-1"></div>
-          <button type="button"
-            class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all duration-200 hover:bg-white/10">
-            <Icon icon="lucide:download" class="size-[11px]" />IMPORT
+          <button type="button" :disabled="isImportingPack" :title="t('import.hint')"
+            class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-white/45 transition-all duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            @click.stop="packFileInput?.click()">
+            <Icon :icon="isImportingPack ? 'lucide:loader-2' : 'lucide:download'" class="size-[11px]"
+              :class="isImportingPack ? 'animate-spin' : ''" />IMPORT
           </button>
+          <input ref="packFileInput" type="file" accept=".mrpack,.zip" class="hidden" @change="onPackBrowse" />
           <button type="button"
             class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)] hover:shadow-[var(--shadow-accent-md)]"
             @click.stop="showCreateModal = true">
@@ -301,7 +566,18 @@ async function saveSettings() {
         PROFILE ({{ filteredInstances.length }})
       </div>
 
-      <div class="overflow-y-scroll grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-3 px-4 py-3 md:px-6">
+      <div class="relative overflow-y-scroll grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-3 px-4 py-3 md:px-6"
+        @dragover.prevent="isDraggingPack = true" @dragleave.prevent="isDraggingPack = false"
+        @drop.prevent="onPackDrop">
+
+        <!-- Dropping a .mrpack or CurseForge .zip here imports it as a new profile. -->
+        <div v-if="isDraggingPack"
+          class="pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--accent-border-strong)] bg-[var(--accent-bg-soft)] backdrop-blur-sm">
+          <Icon icon="lucide:package-plus" class="size-8 text-[var(--primary)]" />
+          <span class="text-[length:var(--text-base)] font-semibold text-[var(--primary)]">{{ t("import.title") }}</span>
+          <span class="text-[length:var(--text-2xs)] text-white/50">{{ t("import.hint") }}</span>
+        </div>
+
         <!-- New profile card -->
         <button type="button"
           class="flex h-48 flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-white/15 bg-[var(--surface-panel-muted)] transition-all duration-200 hover:border-[var(--accent-border-emphasis)] hover:bg-[var(--accent-bg-soft)]"
@@ -360,7 +636,14 @@ async function saveSettings() {
           <!-- Card image area -->
           <div
             class="relative flex h-[100px] items-center justify-center overflow-hidden rounded-t-xl pointer-events-none">
-            <div
+            <!-- Profiles from a modpack show its artwork; hand-made ones keep the version emoji. -->
+            <template v-if="inst.packIconUrl">
+              <img :src="inst.packIconUrl" alt=""
+                class="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                loading="lazy" @error="handleImgError" />
+              <div class="absolute inset-0 bg-black/25"></div>
+            </template>
+            <div v-else
               class="absolute inset-0 flex items-center justify-center text-[40px] opacity-70 transition-transform duration-300 group-hover:scale-105"
               :class="versionGradientClass(inst.versionType)">
               {{ versionEmoji(inst.versionType) }}
@@ -431,6 +714,11 @@ async function saveSettings() {
                 @click="openFolder(inst)">
                 <Icon icon="lucide:folder-open" class="size-3.5 shrink-0" />Open folder
               </button>
+              <button type="button"
+                class="flex w-full items-center gap-2.5 px-3 py-2 text-[length:var(--text-sm)] text-white/70 transition-colors hover:bg-white/8 hover:text-white"
+                @click="openExportFor(inst)">
+                <Icon icon="lucide:package-open" class="size-3.5 shrink-0" />{{ t("export.title") }}
+              </button>
               <div class="mx-2 my-0.5 h-px bg-white/7"></div>
               <button type="button"
                 class="flex w-full items-center gap-2.5 px-3 py-2 text-[length:var(--text-sm)] text-[var(--danger-text,#f87171)] transition-colors hover:bg-red-500/10"
@@ -469,9 +757,11 @@ async function saveSettings() {
           <!-- Left: hero card -->
           <div
             class="relative flex w-56 h-fit shrink-0 flex-col gap-4 overflow-hidden rounded-xl border border-white/10 bg-(--surface-panel)">
-            <div class="flex h-28 items-center justify-center text-[60px]"
-              :class="versionGradientClass(managingInstance.versionType)">
-              {{ versionEmoji(managingInstance.versionType) }}
+            <div class="relative flex h-28 items-center justify-center overflow-hidden text-[60px]"
+              :class="managingInstance.packIconUrl ? '' : versionGradientClass(managingInstance.versionType)">
+              <img v-if="managingInstance.packIconUrl" :src="managingInstance.packIconUrl" alt=""
+                class="size-full object-cover" loading="lazy" @error="handleImgError" />
+              <template v-else>{{ versionEmoji(managingInstance.versionType) }}</template>
             </div>
             <div class="flex flex-col gap-1.5 p-3">
               <div class="truncate text-[length:var(--text-md)] font-semibold text-white">{{ managingInstance.name }}
@@ -546,6 +836,51 @@ async function saveSettings() {
               </div>
             </div>
 
+            <!-- Modpack banner — only for profiles that came from a pack -->
+            <div v-if="modpackStatus?.modpack"
+              class="shrink-0 rounded-xl border px-4 py-3"
+              :class="modpackStatus.updateAvailable
+                ? 'border-[var(--accent-border-strong)] bg-[var(--accent-bg-soft)]'
+                : 'border-white/8 bg-[var(--surface-panel)]'">
+              <div class="flex flex-wrap items-center gap-3">
+                <Icon :icon="modpackStatus.updateAvailable ? 'lucide:arrow-up-circle' : 'lucide:package-check'"
+                  class="size-4 shrink-0" :class="modpackStatus.updateAvailable ? 'text-[var(--primary)]' : 'text-white/35'" />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-[length:var(--text-sm)] font-semibold text-white">
+                    {{ modpackStatus.modpack.name || t("modpack.title") }}
+                    <span v-if="modpackStatus.modpack.versionNumber" class="font-normal text-white/40">
+                      · {{ modpackStatus.modpack.versionNumber }}
+                    </span>
+                  </div>
+                  <div class="text-[length:var(--text-2xs)] text-white/40">
+                    <template v-if="isUpdatingPack">{{ t("modpack.updating") }}</template>
+                    <template v-else-if="modpackStatus.updateAvailable">
+                      {{ t("modpack.updateAvailable", { version: modpackStatus.latestVersionNumber }) }}
+                      · {{ t("modpack.keepsContent") }}
+                    </template>
+                    <template v-else-if="modpackStatus.modpack.sourceFile">
+                      {{ t("modpack.imported", { file: modpackStatus.modpack.sourceFile }) }}
+                    </template>
+                    <template v-else-if="modpackStatus.reason">{{ modpackStatus.reason }}</template>
+                    <template v-else>{{ t("modpack.upToDate") }}</template>
+                  </div>
+                </div>
+                <div class="flex shrink-0 items-center gap-1.5">
+                  <button v-if="modpackStatus.updateAvailable" type="button" :disabled="isUpdatingPack"
+                    class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3 py-1.5 text-[length:var(--text-sm)] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                    @click="runPackUpdate(modpackStatus.latestVersionId)">
+                    <Icon :icon="isUpdatingPack ? 'lucide:loader-2' : 'lucide:arrow-up'" class="size-3"
+                      :class="isUpdatingPack ? 'animate-spin' : ''" />{{ t("modpack.update") }}
+                  </button>
+                  <button v-if="modpackStatus.modpack.updatable" type="button" :disabled="isUpdatingPack"
+                    class="inline-flex items-center gap-1 rounded-[6px] border border-white/10 bg-white/5 px-2.5 py-1.5 text-[length:var(--text-2xs)] font-semibold text-white/50 transition-all hover:bg-white/10 hover:text-white disabled:opacity-50"
+                    @click="openReleasePicker">
+                    <Icon icon="lucide:history" class="size-3" />{{ t("modpack.chooseRelease") }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <!-- Content panel (mods / resourcepacks / shaderpacks / datapacks) -->
             <div v-if="isContentPanel && activeContentType"
               class="flex flex-1 flex-col overflow-hidden rounded-xl border border-white/8 bg-[var(--surface-panel)]">
@@ -556,6 +891,18 @@ async function saveSettings() {
                   <span class="text-white/35 font-medium">({{ contentItems.length }})</span>
                 </div>
                 <div class="flex items-center gap-1.5">
+                  <button type="button" :disabled="isCheckingUpdates || contentItems.length === 0"
+                    class="inline-flex items-center gap-1.5 rounded-[6px] border border-white/10 bg-white/5 px-2.5 py-1.5 text-[length:var(--text-2xs)] font-semibold tracking-[0.06em] text-white/50 transition-all hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    @click="onCheckUpdates">
+                    <Icon :icon="isCheckingUpdates ? 'lucide:loader-2' : 'lucide:refresh-ccw-dot'" class="size-3"
+                      :class="isCheckingUpdates ? 'animate-spin' : ''" />
+                    {{ isCheckingUpdates ? t("content.checking") : t("content.checkUpdates") }}
+                  </button>
+                  <button v-if="contentUpdates.length > 0" type="button" :disabled="updatingFiles.length > 0"
+                    class="inline-flex items-center gap-1.5 rounded-[6px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-2.5 py-1.5 text-[length:var(--text-2xs)] font-semibold tracking-[0.06em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] disabled:opacity-50"
+                    @click="applyAllUpdates">
+                    <Icon icon="lucide:arrow-up" class="size-3" />{{ t("content.updateAll") }} ({{ contentUpdates.length }})
+                  </button>
                   <button type="button"
                     class="inline-flex items-center gap-1.5 rounded-[6px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-2.5 py-1.5 text-[length:var(--text-2xs)] font-semibold tracking-[0.06em] text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)]"
                     @click="fileInput?.click()">
@@ -567,6 +914,13 @@ async function saveSettings() {
                     <Icon icon="lucide:refresh-cw" class="size-3" />
                   </button>
                 </div>
+              </div>
+              <div v-if="hasCheckedUpdates"
+                class="shrink-0 border-b border-white/7 px-4 py-1.5 text-[length:var(--text-2xs)]"
+                :class="contentUpdates.length > 0 ? 'text-[var(--primary)]' : 'text-white/35'">
+                {{ contentUpdates.length > 0
+                  ? t("content.updatesFound", { n: contentUpdates.length })
+                  : t("content.upToDate") }}
               </div>
               <input ref="fileInput" type="file" multiple class="hidden" @change="onBrowse" />
 
@@ -592,13 +946,49 @@ async function saveSettings() {
                       class="group flex items-center justify-between gap-3 rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2.5"
                       :class="!item.enabled ? 'opacity-50' : ''">
                       <div class="flex min-w-0 items-center gap-2.5">
-                        <Icon icon="lucide:file-archive" class="size-4 shrink-0 text-white/35" />
+                        <!-- The project's own icon once it is known; a glyph until then. -->
+                        <img v-if="item.source?.iconUrl" :src="item.source.iconUrl" alt=""
+                          class="size-7 shrink-0 rounded-[6px] border border-white/10 bg-black/20 object-cover"
+                          loading="lazy" @error="handleImgError" />
+                        <div v-else
+                          class="flex size-7 shrink-0 items-center justify-center rounded-[6px] border border-white/8 bg-white/5">
+                          <Icon icon="lucide:file-archive" class="size-3.5 text-white/35" />
+                        </div>
                         <div class="min-w-0">
-                          <div class="truncate text-[length:var(--text-sm)] font-medium text-white">{{ item.fileName }}</div>
-                          <div class="text-[length:var(--text-2xs)] text-white/35">{{ formatBytes(item.size) }}<span v-if="!item.enabled"> · deaktiviert</span></div>
+                          <div class="truncate text-[length:var(--text-sm)] font-medium text-white">
+                            {{ item.source?.projectName || item.fileName }}
+                          </div>
+                          <div class="flex flex-wrap items-center gap-x-1.5 text-[length:var(--text-2xs)] text-white/35">
+                            <span v-if="item.source?.versionNumber"
+                              class="rounded-[4px] bg-white/8 px-1.5 py-px font-mono text-white/55">
+                              {{ item.source.versionNumber }}
+                            </span>
+                            <span v-else-if="!item.tracked" :title="t('content.untrackedHint')"
+                              class="rounded-[4px] bg-white/5 px-1.5 py-px text-white/30">
+                              {{ t("content.untracked") }}
+                            </span>
+                            <span>{{ formatBytes(item.size) }}</span>
+                            <span v-if="!item.enabled">· deaktiviert</span>
+                            <span v-if="updateFor(item.fileName)" class="text-[var(--primary)]">
+                              → {{ updateFor(item.fileName)!.latestVersionNumber }}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div class="flex shrink-0 items-center gap-1.5">
+                        <button v-if="updateFor(item.fileName)" type="button"
+                          :disabled="updatingFiles.includes(item.fileName)"
+                          class="inline-flex items-center gap-1 rounded-[6px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-2 py-1 text-[length:var(--text-2xs)] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] disabled:opacity-50"
+                          @click="applyUpdate(updateFor(item.fileName)!)">
+                          <Icon :icon="updatingFiles.includes(item.fileName) ? 'lucide:loader-2' : 'lucide:arrow-up'"
+                            class="size-3" :class="updatingFiles.includes(item.fileName) ? 'animate-spin' : ''" />
+                          {{ t("content.update") }}
+                        </button>
+                        <button v-if="item.tracked" type="button"
+                          class="flex size-7 items-center justify-center rounded-md border border-white/8 bg-white/[0.03] text-white/35 transition-all hover:bg-white/10 hover:text-white"
+                          :title="t('content.changeVersion')" @click="openVersionPicker(item)">
+                          <Icon icon="lucide:history" class="size-3.5" />
+                        </button>
                         <button type="button"
                           class="inline-flex items-center gap-1 rounded-[6px] border px-2 py-1 text-[length:var(--text-2xs)] font-semibold transition-all"
                           :class="item.enabled
@@ -640,12 +1030,14 @@ async function saveSettings() {
                     <div class="flex gap-3">
                       <div class="flex flex-1 flex-col gap-1">
                         <span class="text-[length:var(--text-2xs)] text-white/35">Max (-Xmx)</span>
-                        <input v-model="settingsForm.maxMemoryMb" type="number" min="512" step="256" placeholder="2048"
+                        <input v-model="settingsForm.maxMemoryMb" type="number" min="512" step="256"
+                          :placeholder="settingsPlaceholders.maxMemoryMb"
                           class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
                       </div>
                       <div class="flex flex-1 flex-col gap-1">
                         <span class="text-[length:var(--text-2xs)] text-white/35">Min (-Xms)</span>
-                        <input v-model="settingsForm.minMemoryMb" type="number" min="256" step="256" placeholder="auto"
+                        <input v-model="settingsForm.minMemoryMb" type="number" min="256" step="256"
+                          :placeholder="settingsPlaceholders.minMemoryMb"
                           class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
                       </div>
                     </div>
@@ -669,13 +1061,13 @@ async function saveSettings() {
                   <!-- JVM args -->
                   <div class="flex flex-col gap-1.5">
                     <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">ZUSÄTZLICHE JVM-ARGUMENTE</label>
-                    <input v-model="settingsForm.jvmArgs" type="text" placeholder="-XX:+UseG1GC -Dfoo=bar"
+                    <input v-model="settingsForm.jvmArgs" type="text" :placeholder="settingsPlaceholders.jvmArgs"
                       class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 font-mono text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
                   </div>
                   <!-- Java override -->
                   <div class="flex flex-col gap-1.5">
                     <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">JAVA-PFAD (OPTIONAL)</label>
-                    <input v-model="settingsForm.javaPath" type="text" placeholder="Automatisch (Java {{ managingInstance.javaMajorVersion }})"
+                    <input v-model="settingsForm.javaPath" type="text" :placeholder="settingsPlaceholders.javaPath"
                       class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 font-mono text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
                     <span class="text-[length:var(--text-2xs)] text-white/30">Pfad zur java-Executable oder zum JDK-Verzeichnis. Leer = automatisch.</span>
                   </div>
@@ -714,6 +1106,12 @@ async function saveSettings() {
                     <span>{{ t("profiles.openFolder") }}</span>
                   </button>
                   <button type="button"
+                    class="flex items-center gap-3 rounded-lg border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-[length:var(--text-sm)] text-white/70 transition-all hover:bg-white/8 hover:text-white"
+                    @click="openExport">
+                    <Icon icon="lucide:package-open" class="size-3.5 shrink-0 text-white/40" />
+                    <span>{{ t("export.title") }}</span>
+                  </button>
+                  <button type="button"
                     class="flex items-center gap-3 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3.5 py-2.5 text-[length:var(--text-sm)] text-[var(--danger-text,#f87171)] transition-all hover:bg-red-500/15"
                     :disabled="managingInstance.running" @click="startDelete(managingInstance)">
                     <Icon icon="lucide:trash-2" class="size-3.5 shrink-0" />
@@ -727,6 +1125,185 @@ async function saveSettings() {
       </div>
     </template>
   </div>
+
+  <!-- Version picker for one installed file -->
+  <Teleport to="body">
+    <div v-if="versionPickerFile"
+      class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-5 backdrop-blur-md"
+      @click.self="closeVersionPicker">
+      <div class="flex max-h-[70vh] w-full max-w-[520px] flex-col rounded-[14px] border border-[var(--accent-border)] bg-[var(--surface-panel-strong)] shadow-[var(--shadow-modal)]">
+        <div class="flex items-center justify-between border-b border-white/7 px-5 py-4">
+          <div class="min-w-0">
+            <div class="truncate text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">
+              {{ t("content.chooseVersion").toUpperCase() }}
+            </div>
+            <div class="truncate text-[length:var(--text-2xs)] text-white/40">
+              {{ versionPickerFile.source?.projectName || versionPickerFile.fileName }}
+            </div>
+          </div>
+          <button type="button"
+            class="flex size-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all hover:bg-white/10 hover:text-white"
+            @click="closeVersionPicker">
+            <Icon icon="lucide:x" class="size-[14px]" />
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-3">
+          <div v-if="isLoadingVersionList" class="py-8 text-center text-[length:var(--text-sm)] text-white/40">
+            {{ t("content.checking") }}
+          </div>
+          <div v-else-if="versionPickerList.length === 0"
+            class="py-8 text-center text-[length:var(--text-sm)] text-white/40">
+            {{ t("install.noCompatibleVersion") }}
+          </div>
+          <div v-else class="flex flex-col gap-1.5">
+            <button v-for="version in versionPickerList" :key="version.versionId" type="button"
+              :disabled="!version.downloadable"
+              class="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-all disabled:cursor-not-allowed disabled:opacity-40"
+              :class="version.versionId === versionPickerFile.source?.versionId
+                ? 'border-[var(--accent-border-strong)] bg-[var(--accent-bg-soft)]'
+                : 'border-white/8 bg-white/[0.03] hover:bg-white/8'"
+              @click="pickVersion(version)">
+              <div class="min-w-0">
+                <div class="truncate text-[length:var(--text-sm)] font-medium text-white">
+                  {{ version.versionNumber || version.name }}
+                </div>
+                <div class="truncate text-[length:var(--text-2xs)] text-white/35">
+                  {{ version.releaseType }} · {{ version.gameVersions.slice(0, 3).join(", ") }}
+                  <span v-if="version.datePublished"> · {{ formatRelativeIso(version.datePublished) }}</span>
+                </div>
+              </div>
+              <span v-if="version.versionId === versionPickerFile.source?.versionId"
+                class="shrink-0 rounded-[5px] border border-[var(--success-border)] bg-[var(--success-bg)] px-2 py-0.5 text-[length:var(--text-2xs)] font-bold text-[var(--accent)]">
+                {{ t("content.currentVersion") }}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Modpack release picker -->
+  <Teleport to="body">
+    <div v-if="showReleasePicker"
+      class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-5 backdrop-blur-md"
+      @click.self="showReleasePicker = false">
+      <div class="flex max-h-[70vh] w-full max-w-[520px] flex-col rounded-[14px] border border-[var(--accent-border)] bg-[var(--surface-panel-strong)] shadow-[var(--shadow-modal)]">
+        <div class="flex items-center justify-between border-b border-white/7 px-5 py-4">
+          <div class="text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">
+            {{ t("modpack.chooseRelease").toUpperCase() }}
+          </div>
+          <button type="button"
+            class="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all hover:bg-white/10 hover:text-white"
+            @click="showReleasePicker = false">
+            <Icon icon="lucide:x" class="size-[14px]" />
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-3">
+          <div v-if="packReleases.length === 0" class="py-8 text-center text-[length:var(--text-sm)] text-white/40">
+            {{ t("content.checking") }}
+          </div>
+          <div v-else class="flex flex-col gap-1.5">
+            <button v-for="release in packReleases" :key="release.versionId" type="button"
+              :disabled="!release.downloadable"
+              class="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-all disabled:cursor-not-allowed disabled:opacity-40"
+              :class="release.versionId === modpackStatus?.modpack?.versionId
+                ? 'border-[var(--accent-border-strong)] bg-[var(--accent-bg-soft)]'
+                : 'border-white/8 bg-white/[0.03] hover:bg-white/8'"
+              @click="runPackUpdate(release.versionId)">
+              <div class="min-w-0">
+                <div class="truncate text-[length:var(--text-sm)] font-medium text-white">
+                  {{ release.versionNumber || release.name }}
+                </div>
+                <div class="truncate text-[length:var(--text-2xs)] text-white/35">
+                  {{ release.releaseType }} · {{ release.gameVersions.slice(0, 3).join(", ") }}
+                </div>
+              </div>
+              <span v-if="release.versionId === modpackStatus?.modpack?.versionId"
+                class="shrink-0 rounded-[5px] border border-[var(--success-border)] bg-[var(--success-bg)] px-2 py-0.5 text-[length:var(--text-2xs)] font-bold text-[var(--accent)]">
+                {{ t("content.currentVersion") }}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Export modal -->
+  <Teleport to="body">
+    <div v-if="showExportModal"
+      class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-5 backdrop-blur-md"
+      @click.self="showExportModal = false">
+      <div class="w-full max-w-[460px] rounded-[14px] border border-[var(--accent-border)] bg-[var(--surface-panel-strong)] shadow-[var(--shadow-modal)]">
+        <div class="flex items-center justify-between border-b border-white/7 px-5 py-4">
+          <div class="text-[length:var(--text-lg)] font-bold tracking-[0.1em] text-white">
+            {{ t("export.title").toUpperCase() }}
+          </div>
+          <button type="button"
+            class="flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/40 transition-all hover:bg-white/10 hover:text-white"
+            @click="showExportModal = false">
+            <Icon icon="lucide:x" class="size-[14px]" />
+          </button>
+        </div>
+
+        <div class="flex flex-col gap-4 p-5">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">
+              {{ t("export.format").toUpperCase() }}
+            </label>
+            <div class="flex gap-2">
+              <button v-for="f in (['mrpack', 'curseforge'] as ExportFormat[])" :key="f" type="button"
+                class="flex-1 rounded-lg border px-3 py-2 text-[length:var(--text-sm)] font-semibold transition-all"
+                :class="exportFormat === f
+                  ? 'border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] text-[var(--primary)]'
+                  : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/8'"
+                @click="exportFormat = f; exportResult = null">
+                {{ f === 'mrpack' ? t("export.mrpack") : t("export.curseforge") }}
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">
+              {{ t("export.version").toUpperCase() }}
+            </label>
+            <input v-model="exportVersion" type="text" placeholder="1.0.0"
+              class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-3 py-2 text-[length:var(--text-sm)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]" />
+            <span class="text-[length:var(--text-2xs)] text-white/30">{{ t("export.hint") }}</span>
+          </div>
+
+          <div v-if="exportResult"
+            class="rounded-lg border border-[var(--success-border)] bg-[var(--success-bg)] px-3 py-2.5">
+            <div class="text-[length:var(--text-sm)] font-semibold text-[var(--accent)]">
+              {{ t("export.done", { file: exportResult.fileName }) }}
+            </div>
+            <div class="mt-0.5 text-[length:var(--text-2xs)] text-white/45">
+              {{ t("export.summary", { referenced: exportResult.referenced, bundled: exportResult.bundled }) }}
+            </div>
+            <div v-for="note in exportResult.notes" :key="note" class="mt-0.5 text-[length:var(--text-2xs)] text-white/35">
+              {{ note }}
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <button v-if="exportResult" type="button"
+              class="inline-flex items-center gap-1.5 rounded-[7px] border border-white/10 bg-white/5 px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold text-white/50 transition-all hover:bg-white/10"
+              @click="openDirectory('exports')">
+              <Icon icon="lucide:folder-open" class="size-[12px]" />{{ t("export.showFolder") }}
+            </button>
+            <button type="button" :disabled="isExporting"
+              class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--accent-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              @click="runExport">
+              <Icon :icon="isExporting ? 'lucide:loader-2' : 'lucide:package-open'" class="size-[12px]"
+                :class="isExporting ? 'animate-spin' : ''" />
+              {{ isExporting ? t("export.running") : t("export.action") }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
   <!-- Edit / Rename modal -->
   <Teleport to="body">
@@ -748,7 +1325,7 @@ async function saveSettings() {
             <label class="text-[length:var(--text-2xs)] font-bold tracking-[0.14em] text-white/40">PROFILNAME</label>
             <input v-model="editNewName" type="text"
               class="w-full rounded-lg border border-white/10 bg-[var(--surface-input)] px-[13px] py-2.5 text-[length:var(--text-md)] text-white outline-none transition-colors focus:border-[var(--accent-border-focus)]"
-              @keyup.enter="handleRenameInstance(editTargetInstance!.name, editNewName)" />
+              @keyup.enter="renameManaged(editTargetInstance!.name, editNewName)" />
           </div>
           <div class="flex justify-end gap-2">
             <button type="button"
@@ -759,7 +1336,7 @@ async function saveSettings() {
             <button type="button"
               class="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--accent-border-strong)] bg-[var(--accent-bg-strong)] px-3.5 py-[7px] text-[length:var(--text-sm)] font-semibold tracking-[0.07em] text-[var(--primary)] transition-all duration-200 hover:bg-[var(--accent-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="!editNewName.trim() || editNewName.trim() === editTargetInstance.name"
-              @click="handleRenameInstance(editTargetInstance!.name, editNewName)">
+              @click="renameManaged(editTargetInstance!.name, editNewName)">
               {{ t("common.save") }}
             </button>
           </div>
